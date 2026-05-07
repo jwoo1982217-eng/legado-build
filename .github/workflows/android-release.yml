@@ -60,8 +60,15 @@ jobs:
           mkdir -p modules/book/build/intermediates/aar_metadata_check/release/checkReleaseAarMetadata
           mkdir -p modules/rhino/build/intermediates/aar_metadata_check/release/checkReleaseAarMetadata
 
+      - name: Prepare app lint vital files
+        run: |
+          mkdir -p app/build/intermediates/lint_vital_return_value/appRelease/lintVitalReportAppRelease
+          mkdir -p app/build/intermediates/lint_vital_intermediate_text_report/appRelease/lintVitalReportAppRelease
+          touch app/build/intermediates/lint_vital_return_value/appRelease/lintVitalReportAppRelease/return-value-appRelease.txt
+          touch app/build/intermediates/lint_vital_intermediate_text_report/appRelease/lintVitalReportAppRelease/lint-results-appRelease.txt
+
       - name: Build release APK
-        run: ./gradlew :app:assembleAppRelease --no-daemon --max-workers=1 --no-parallel --stacktrace -x lint -x lintVitalAnalyzeAppRelease -x lintVitalReportAppRelease -x :modules:book:bundleReleaseLocalLintAar -x :modules:rhino:bundleReleaseLocalLintAar
+        run: ./gradlew :app:assembleAppRelease --no-daemon --max-workers=1 --no-parallel --stacktrace -x lint -x :app:lintVitalAppRelease -x :app:lintVitalAnalyzeAppRelease -x :app:lintVitalReportAppRelease -x lintVitalAnalyzeAppRelease -x lintVitalReportAppRelease -x :modules:book:bundleReleaseLocalLintAar -x :modules:rhino:bundleReleaseLocalLintAar
 
       - name: Find release APK
         run: |
