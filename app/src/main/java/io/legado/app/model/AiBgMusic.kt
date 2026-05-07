@@ -1019,16 +1019,124 @@ object AiBgMusic {
         }.getOrDefault(responseText)
     }
 
-    private fun chooseAiTrack(tracks: List<MusicTrack>, scene: AiScene, index: Int): MusicTrack {
-        val requested = scene.musicName.trim()
-        val matched = tracks.firstOrNull { it.name.equals(requested, ignoreCase = true) }
-            ?: tracks.firstOrNull { requested.isNotBlank() && it.name.contains(requested, ignoreCase = true) }
-        if (matched != null) return matched
-        if (requested.isNotBlank()) {
-            AppLog.putDebug("AI背景音乐：模型返回的音乐不存在，改按氛围从本地文件夹兜底选择：$requested")
+
+    private fun musicFileNameOnly(value: String): String {
+        return value.substringAfterLast('/').substringAfterLast('\\').trim()
+    }
+
+    private fun stripMusicExtension(value: String): String {
+        return musicFileNameOnly(value)
+            .replace(Regex("\\.(mp3|wav|m4a|aac|ogg|flac)$", RegexOption.IGNORE_CASE), "")
+            .trim()
+    }
+
+    private fun normalizeMusicMatchKey(value: String): String {
+        return stripMusicExtension(value)
+            .lowercase()
+            .replace(Regex("[\\s\\u3000_\\-·.()（）\\[\\]【】]+"), "")
+            .trim()
+    }
+
+    private fun extractMusicTags(value: String): List<String> {
+        return stripMusicExtension(value)
+            .split("_", " ", "　", "-", "·", "/", "\\")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot { it.matches(Regex("^\\d+$")) }
+            .filterNot { it.equals("mp3", true) || it.equals("wav", true) || it.equals("m4a", true) || it.equals("aac", true) || it.equals("ogg", true) || it.equals("flac", true) }
+            .distinct()
+    }
+
+    private fun findRequestedMusicTrack(tracks: List<MusicTrack>, requested: String): MusicTrack? {
+        val raw = requested.trim()
+        if (raw.isBlank()) return null
+
+        tracks.firstOrNull { it.name == raw || it.uri == raw }?.let { return it }
+
+        val rawFile = musicFileNameOnly(raw)
+        tracks.firstOrNull { it.name == rawFile }?.let { return it }
+
+        val key = normalizeMusicMatchKey(raw)
+        if (key.isBlank()) return null
+
+        tracks.firstOrNull { normalizeMusicMatchKey(it.name) == key }?.let { return it }
+
+        return tracks.firstOrNull {
+            val trackKey = normalizeMusicMatchKey(it.name)
+            trackKey.isNotBlank() && (trackKey.contains(key) || key.contains(trackKey))
         }
-        return tracks.firstOrNull { scene.mood.isNotBlank() && it.name.contains(scene.mood, ignoreCase = true) }
-            ?: chooseTrack(tracks, "${scene.mood}\n${scene.reason}", index)
+    }
+
+    private fun scoreMusicTrack(trackName: String, sceneText: String): Int {
+        val trackKey = normalizeMusicMatchKey(trackName)
+        val sceneKey = normalizeMusicMatchKey(sceneText)
+        if (trackKey.isBlank() || sceneKey.isBlank()) return 0
+
+        var score = 0
+
+        // 1. 整体归一化包含关系：适合 AI 返回了部分文件名、漏扩展名、漏空格
+        if (trackKey == sceneKey) score += 1000
+        if (trackKey.contains(sceneKey) || sceneKey.contains(trackKey)) score += 300
+
+        // 2. 通用标签重叠：不写死任何一套背景音乐标签体系
+        val trackTags = extractMusicTags(trackName)
+        val sceneTags = extractMusicTags(sceneText)
+
+        trackTags.forEach { tag ->
+            val tagKey = normalizeMusicMatchKey(tag)
+            if (tagKey.isBlank()) return@forEach
+
+            when {
+                sceneTags.any { normalizeMusicMatchKey(it) == tagKey } -> {
+                    score += 20 + tagKey.length.coerceAtMost(8)
+                }
+                sceneKey.contains(tagKey) -> {
+                    score += 8 + tagKey.length.coerceAtMost(6)
+                }
+            }
+        }
+
+        // 3. 文件名前缀略加分：适合同一套音乐用统一前缀命名
+        val trackMain = stripMusicExtension(trackName)
+        val sceneMain = stripMusicExtension(sceneText)
+        val commonPrefixLen = trackMain.zip(sceneMain)
+            .takeWhile { it.first == it.second }
+            .size
+
+        if (commonPrefixLen >= 2) {
+            score += commonPrefixLen.coerceAtMost(20)
+        }
+
+        return score
+    }
+
+    private fun chooseAiTrack(tracks: List<MusicTrack>, scene: AiScene, musicGroup: Int): MusicTrack {
+        if (tracks.isEmpty()) return MusicTrack("", "")
+
+        val requested = scene.musicName.trim()
+        findRequestedMusicTrack(tracks, requested)?.let { return it }
+
+        if (requested.isNotBlank()) {
+            AppLog.putDebug("AI背景音乐：模型返回的音乐名未精确命中，改用宽松标签匹配：$requested")
+        }
+
+        val sceneText = listOf(
+            scene.musicName,
+            scene.mood,
+            scene.reason,
+            scene.startText,
+            scene.endText
+        ).joinToString("_")
+
+        val best = tracks
+            .map { it to scoreMusicTrack(it.name, sceneText) }
+            .filter { it.second > 0 }
+            .maxByOrNull { it.second }
+            ?.first
+
+        if (best != null) return best
+
+        return tracks.getOrElse(musicGroup.mod(tracks.size)) { tracks.first() }
     }
 
     private fun detectMood(text: String): String {
