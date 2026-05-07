@@ -82,7 +82,7 @@ zxingLite = "3.3.0"
 koin-bom = "4.2.0"
 biometricKtx = "1.1.0"
 
-reorderable = "3.0.0"
+reorderable = "3.1.0"
 haze = "1.7.2"
 timber = "5.0.1"
 miuix = "0.9.0"
