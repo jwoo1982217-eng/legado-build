@@ -596,10 +596,10 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
         get() = appCtx.getPrefBoolean(PreferKey.keyPageOnLongPress, false)
 
     val volumeKeyPage
-        get() = appCtx.getPrefBoolean(PreferKey.volumeKeyPage, true)
+        get() = false
 
     val volumeKeyPageOnPlay
-        get() = appCtx.getPrefBoolean(PreferKey.volumeKeyPageOnPlay, true)
+        get() = false
 
     val mouseWheelPage
         get() = appCtx.getPrefBoolean(PreferKey.mouseWheelPage, true)
