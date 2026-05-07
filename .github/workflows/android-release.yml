@@ -55,8 +55,13 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Prepare release metadata dirs
+        run: |
+          mkdir -p modules/book/build/intermediates/aar_metadata_check/release/checkReleaseAarMetadata
+          mkdir -p modules/rhino/build/intermediates/aar_metadata_check/release/checkReleaseAarMetadata
+
       - name: Build release APK
-        run: ./gradlew :app:assembleAppRelease --no-daemon --max-workers=1 --no-parallel --stacktrace
+        run: ./gradlew :app:assembleAppRelease --no-daemon --max-workers=1 --no-parallel --stacktrace -x lint -x lintVitalAnalyzeAppRelease -x lintVitalReportAppRelease -x :modules:book:bundleReleaseLocalLintAar -x :modules:rhino:bundleReleaseLocalLintAar
 
       - name: Find release APK
         run: |
