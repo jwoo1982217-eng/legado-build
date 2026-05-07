@@ -26,6 +26,23 @@ jobs:
           sed -i '/android.aapt2FromMavenOverride/d' gradle.properties || true
           sed -i '/org.gradle.java.home/d' gradle.properties || true
 
+      - name: Configure Gradle memory for CI
+        run: |
+          sed -i '/org.gradle.jvmargs/d' gradle.properties || true
+          sed -i '/kotlin.daemon.jvmargs/d' gradle.properties || true
+          sed -i '/kotlin.compiler.execution.strategy/d' gradle.properties || true
+          sed -i '/org.gradle.workers.max/d' gradle.properties || true
+          sed -i '/org.gradle.parallel/d' gradle.properties || true
+          sed -i '/org.gradle.daemon/d' gradle.properties || true
+          cat >> gradle.properties <<'EOF_GRADLE'
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvmargs=-Xmx3072m
+          kotlin.compiler.execution.strategy=daemon
+          org.gradle.workers.max=1
+          org.gradle.parallel=false
+          org.gradle.daemon=false
+          EOF_GRADLE
+
       - name: Force compileSdk 34
         run: |
           sed -i 's/compileSdk = [0-9]\+/compileSdk = 34/g' app/build.gradle.kts || true
@@ -36,7 +53,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew :app:assembleAppDebug --no-daemon --max-workers=2 --no-parallel --stacktrace
+        run: ./gradlew :app:assembleAppDebug --no-daemon --max-workers=1 --no-parallel --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
