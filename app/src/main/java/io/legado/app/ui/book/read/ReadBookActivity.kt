@@ -1557,7 +1557,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         AiBgMusic.analyzeRange(
                             it,
                             ReadBook.durChapterIndex,
-                            if (AiBgMusic.preloadWholeBook) ReadBook.simulatedChapterSize else AiBgMusic.preloadChapters,
+                            if (AiBgMusic.preloadWholeBook) ReadBook.simulatedChapterSize else AiBgMusic.preloadChapters + 1,
                             ReadBook.curTextChapter,
                             force = true
                         )
@@ -1645,7 +1645,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     AiBgMusic.analyzeRange(
                         it,
                         ReadBook.durChapterIndex,
-                        if (AiBgMusic.preloadWholeBook) ReadBook.simulatedChapterSize else AiBgMusic.preloadChapters,
+                        if (AiBgMusic.preloadWholeBook) ReadBook.simulatedChapterSize else AiBgMusic.preloadChapters + 1,
                         ReadBook.curTextChapter,
                         force = true
                     )

@@ -36,6 +36,7 @@ import splitties.init.appCtx
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
 object AiBgMusic {
@@ -145,11 +146,23 @@ object AiBgMusic {
     private var analyzeJob: Job? = null
     private val analyzingChapterKeys = ConcurrentHashMap.newKeySet<String>()
     private val runtimeAnalyses = ConcurrentHashMap<String, ChapterAnalysis>()
+    private val analysisQueueSeq = AtomicLong(0)
+    @Volatile
+    private var activeAnalysisWindow: AnalysisWindow? = null
 
     const val STATUS_ANALYZING = "analyzing"
     const val STATUS_DONE = "done"
     const val STATUS_WAITING = "waiting"
     const val STATUS_FAILED = "failed"
+
+    private data class AnalysisWindow(
+        val bookUrl: String,
+        val bookName: String,
+        val startChapterIndex: Int,
+        val endExclusive: Int,
+        val queueId: Long,
+        val modeKey: String,
+    )
 
     var enabled: Boolean
         get() = appCtx.getPrefBoolean(KEY_ENABLED, false)
@@ -546,7 +559,7 @@ object AiBgMusic {
             if (preloadWholeBook) {
                 (appDb.bookChapterDao.getChapterCount(book.bookUrl) - chapterIndex).coerceAtLeast(1)
             } else {
-                preloadChapters
+                preloadChapters + 1
             }
         }.getOrElse { e ->
             saveChapterAnalysis(
@@ -598,58 +611,102 @@ object AiBgMusic {
             return
         }
         val chapterTotal = appDb.bookChapterDao.getChapterCount(book.bookUrl)
-        val endExclusive = (startChapterIndex + chapterCount)
+        val safeStartChapterIndex = startChapterIndex.coerceAtLeast(0)
+        val endExclusive = (safeStartChapterIndex + chapterCount.coerceAtLeast(1))
             .coerceAtMost(chapterTotal)
-        val indices = if (endExclusive > startChapterIndex) {
-            startChapterIndex until endExclusive
+        val indices = if (endExclusive > safeStartChapterIndex) {
+            safeStartChapterIndex until endExclusive
         } else {
-            startChapterIndex..startChapterIndex
+            safeStartChapterIndex..safeStartChapterIndex
         }
 
-        if (true) {
-            saveChapterAnalysis(
+        val currentModeKey = modeKey()
+        val existingWindow = activeAnalysisWindow
+        val reusableWindow = existingWindow?.takeIf {
+            !force &&
+                    analyzeJob?.isActive == true &&
+                    it.bookUrl == book.bookUrl &&
+                    it.startChapterIndex == safeStartChapterIndex &&
+                    it.endExclusive == endExclusive &&
+                    it.modeKey == currentModeKey
+        }
+        val queueId = if (reusableWindow != null) {
+            reusableWindow.queueId
+        } else {
+            analyzeJob?.cancel()
+            analyzingChapterKeys.clear()
+            analysisQueueSeq.incrementAndGet().also { id ->
+                activeAnalysisWindow = AnalysisWindow(
+                    bookUrl = book.bookUrl,
+                    bookName = book.name,
+                    startChapterIndex = safeStartChapterIndex,
+                    endExclusive = endExclusive,
+                    queueId = id,
+                    modeKey = currentModeKey,
+                )
+            }
+        }
+
+        indices.forEachIndexed { order, index ->
+            val old = chapterAnalysis(book.name, index)
+            if (!force && old?.status == STATUS_DONE && old.modeKey == currentModeKey) return@forEachIndexed
+            saveQueueChapterAnalysis(
+                queueId,
                 ChapterAnalysis(
                     bookName = book.name,
-                    chapterTitle = currentChapter?.title.orEmpty(),
-                    chapterIndex = startChapterIndex,
-                    status = STATUS_ANALYZING,
-                    statusMessage = "AI 背景音乐分析已触发，正在准备整章内容和音乐列表。",
-                    modeKey = modeKey(),
+                    chapterTitle = if (index == safeStartChapterIndex) currentChapter?.title.orEmpty() else "",
+                    chapterIndex = index,
+                    status = if (order == 0) STATUS_ANALYZING else STATUS_WAITING,
+                    statusMessage = if (order == 0) {
+                        "当前章优先分析：正在准备整章内容和音乐列表。"
+                    } else {
+                        "已进入当前缓存窗口，等待前面章节分析完成。"
+                    },
+                    modeKey = currentModeKey,
                 )
             )
         }
 
+        if (reusableWindow != null) return
+
         analyzeJob = scope.launch {
             indices.forEach { index ->
+                if (!isActiveQueue(queueId)) return@launch
                 val old = chapterAnalysis(book.name, index)
-                if (!force && old?.status == STATUS_DONE && old.modeKey == modeKey()) return@forEach
+                if (!force && old?.status == STATUS_DONE && old.modeKey == currentModeKey) return@forEach
 
                 val chapterKey = "${book.bookUrl}#$index"
                 if (!analyzingChapterKeys.add(chapterKey)) return@forEach
                 try {
-                    saveChapterAnalysis(
+                    saveQueueChapterAnalysis(
+                        queueId,
                         ChapterAnalysis(
                             bookName = book.name,
-                            chapterTitle = if (index == startChapterIndex) currentChapter?.title.orEmpty() else "",
+                            chapterTitle = if (index == safeStartChapterIndex) currentChapter?.title.orEmpty() else "",
                             chapterIndex = index,
                             status = STATUS_ANALYZING,
-                            statusMessage = "后台分析任务已开始，正在读取章节正文。",
-                            modeKey = modeKey(),
+                            statusMessage = if (index == safeStartChapterIndex) {
+                                "当前章优先分析：后台任务已开始，正在读取章节正文。"
+                            } else {
+                                "后台分析任务已开始，正在读取章节正文。"
+                            },
+                            modeKey = currentModeKey,
                         )
                     )
-                    analyzeChapter(book, index, if (index == startChapterIndex) currentChapter else null, tracks)
+                    analyzeChapter(book, index, if (index == safeStartChapterIndex) currentChapter else null, tracks, queueId)
                 } catch (e: Throwable) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     val message = e.localizedMessage.orEmpty().ifBlank { e::class.java.simpleName }
                     AppLog.putDebug("AI背景音乐：章节 ${index + 1} 分析异常：$message")
-                    saveChapterAnalysis(
+                    saveQueueChapterAnalysis(
+                        queueId,
                         ChapterAnalysis(
                             bookName = book.name,
-                            chapterTitle = if (index == startChapterIndex) currentChapter?.title.orEmpty() else "",
+                            chapterTitle = if (index == safeStartChapterIndex) currentChapter?.title.orEmpty() else "",
                             chapterIndex = index,
                             status = STATUS_FAILED,
                             statusMessage = "后台分析异常：$message",
-                            modeKey = modeKey(),
+                            modeKey = currentModeKey,
                         )
                     )
                 } finally {
@@ -669,8 +726,10 @@ object AiBgMusic {
         book: Book,
         chapterIndex: Int,
         currentChapter: TextChapter?,
-        tracks: List<MusicTrack>
+        tracks: List<MusicTrack>,
+        queueId: Long,
     ) {
+        if (!isActiveQueue(queueId)) return
         val dbChapter = appDb.bookChapterDao.getChapter(book.bookUrl, chapterIndex)
         val title = currentChapter?.title ?: dbChapter?.title.orEmpty()
         val candidate = chapterContentCandidate(book, dbChapter, currentChapter)
@@ -678,11 +737,12 @@ object AiBgMusic {
         if (invalidReason != null) {
             val message = "等待有效整章正文后再分析。来源=${candidate.source}，文本长度=${candidate.content.length}，原因=$invalidReason"
             AppLog.putDebug("AI背景音乐：$message")
-            markWaiting(book.name, title, chapterIndex, message)
+            markWaiting(book.name, title, chapterIndex, message, queueId)
             return
         }
 
-        saveChapterAnalysis(
+        saveQueueChapterAnalysis(
+            queueId,
             ChapterAnalysis(
                 bookName = book.name,
                 chapterTitle = title,
@@ -694,8 +754,10 @@ object AiBgMusic {
         )
 
         val result = buildPlaylistWithAi(book.name, chapterIndex, title, candidate.content, tracks)
+        if (!isActiveQueue(queueId)) return
         if (result.items.isEmpty()) {
-            saveChapterAnalysis(
+            saveQueueChapterAnalysis(
+                queueId,
                 ChapterAnalysis(
                     bookName = book.name,
                     chapterTitle = title,
@@ -708,7 +770,8 @@ object AiBgMusic {
             return
         }
 
-        saveChapterAnalysis(
+        saveQueueChapterAnalysis(
+            queueId,
             ChapterAnalysis(
                 bookName = book.name,
                 chapterTitle = title,
@@ -762,17 +825,30 @@ object AiBgMusic {
         return null
     }
 
-    private fun markWaiting(bookName: String, chapterTitle: String, chapterIndex: Int, message: String) {
-        saveChapterAnalysis(
-            ChapterAnalysis(
-                bookName = bookName,
-                chapterTitle = chapterTitle,
-                chapterIndex = chapterIndex,
-                status = STATUS_WAITING,
-                statusMessage = message,
-                modeKey = modeKey(),
-            )
+    private fun markWaiting(bookName: String, chapterTitle: String, chapterIndex: Int, message: String, queueId: Long? = null) {
+        val analysis = ChapterAnalysis(
+            bookName = bookName,
+            chapterTitle = chapterTitle,
+            chapterIndex = chapterIndex,
+            status = STATUS_WAITING,
+            statusMessage = message,
+            modeKey = modeKey(),
         )
+        if (queueId != null) {
+            saveQueueChapterAnalysis(queueId, analysis)
+        } else {
+            saveChapterAnalysis(analysis)
+        }
+    }
+
+    private fun isActiveQueue(queueId: Long): Boolean {
+        return activeAnalysisWindow?.queueId == queueId
+    }
+
+    private fun saveQueueChapterAnalysis(queueId: Long, analysis: ChapterAnalysis) {
+        if (isActiveQueue(queueId)) {
+            saveChapterAnalysis(analysis)
+        }
     }
 
     private fun emptyAnalysisDebug(title: String, bookName: String?): String {
@@ -814,10 +890,11 @@ object AiBgMusic {
                 else -> {
                     val title = analysis.chapterTitle.orEmpty().ifBlank { "第 ${analysis.chapterIndex + 1} 章" }
                     val header = "$title：共 ${analysis.items.size} 个${analysis.items.firstOrNull()?.unitType.orEmpty().ifBlank { "场景" }}"
+                    val status = analysis.statusMessage.takeIf { it.isNotBlank() }?.let { "$it\n" }.orEmpty()
                     val body = analysis.items.joinToString("\n") {
                         "场景 ${it.sceneIndex}｜${it.mood.orEmpty().ifBlank { "未识别氛围" }}｜${it.musicName.orEmpty().ifBlank { "未匹配音乐" }}"
                     }
-                    "$header\n$body"
+                    "$header\n$status$body"
                 }
             }
         }
@@ -983,11 +1060,23 @@ object AiBgMusic {
 
     private fun allAnalyses(bookName: String?): List<ChapterAnalysis> {
         val analyses = loadAnalyses()
-        val filtered = analyses
+        val window = activeAnalysisWindow?.takeIf { window ->
+            bookName.isNullOrBlank() || sameBookName(window.bookName, bookName)
+        }
+        val source = if (window != null) {
+            analyses.filter {
+                sameBookName(it.bookName, window.bookName) &&
+                        it.chapterIndex >= window.startChapterIndex &&
+                        it.chapterIndex < window.endExclusive
+            }.ifEmpty { analyses }
+        } else {
+            analyses
+        }
+        val filtered = source
             .filter { bookName.isNullOrBlank() || sameBookName(it.bookName, bookName) }
             .sortedBy { it.chapterIndex }
         return filtered.ifEmpty {
-            if (bookName.isNullOrBlank()) emptyList() else analyses.sortedBy { it.chapterIndex }
+            if (bookName.isNullOrBlank()) emptyList() else source.sortedBy { it.chapterIndex }
         }
     }
 

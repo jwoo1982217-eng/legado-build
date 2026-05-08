@@ -343,7 +343,7 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
             value = config.preloadChapters.coerceIn(1, 30).toFloat()
         }
         fun updatePreloadText(value: Float) {
-            preloadText.text = "不选整本书时，提前生成 ${value.toInt()} 章播放列表"
+            preloadText.text = "不选整本书时，提前生成当前章 + 后面 ${value.toInt()} 章播放列表"
         }
         updatePreloadText(preloadSlider.value)
         preloadSlider.addOnChangeListener { _, value, _ -> updatePreloadText(value) }
