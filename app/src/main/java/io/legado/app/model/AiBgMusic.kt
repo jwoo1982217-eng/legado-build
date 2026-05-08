@@ -54,6 +54,7 @@ object AiBgMusic {
     private const val KEY_VOLUME = "ai_bgm_volume"
     private const val KEY_PRELOAD_CHAPTERS = "ai_bgm_preload_chapters"
     private const val KEY_PRELOAD_WHOLE_BOOK = "ai_bgm_preload_whole_book"
+    private const val KEY_PROMPT_MUSIC_CANDIDATE_LIMIT = "ai_bgm_prompt_music_candidate_limit"
 
     const val FREQUENCY_BOOK = 0
     const val FREQUENCY_CHAPTER = 1
@@ -71,6 +72,7 @@ object AiBgMusic {
         val volume: Int = 35,
         val preloadChapters: Int = 5,
         val preloadWholeBook: Boolean = false,
+        val promptMusicCandidateLimit: Int = 250,
     )
 
     data class PlaylistItem(
@@ -226,6 +228,14 @@ object AiBgMusic {
         get() = appCtx.getPrefBoolean(KEY_PRELOAD_WHOLE_BOOK, false)
         set(value) = appCtx.putPrefBoolean(KEY_PRELOAD_WHOLE_BOOK, value)
 
+    var promptMusicCandidateLimit: Int
+        get() = appCtx.getPrefInt(KEY_PROMPT_MUSIC_CANDIDATE_LIMIT, 250)
+        set(value) {
+            val newValue = value.coerceIn(50, 500)
+            if (newValue != promptMusicCandidateLimit) invalidateRuntimePlaylist()
+            appCtx.putPrefInt(KEY_PROMPT_MUSIC_CANDIDATE_LIMIT, newValue)
+        }
+
     fun config(): Config = Config(
         enabled = enabled,
         musicDir = musicDir,
@@ -238,6 +248,7 @@ object AiBgMusic {
         volume = volume,
         preloadChapters = preloadChapters,
         preloadWholeBook = preloadWholeBook,
+        promptMusicCandidateLimit = promptMusicCandidateLimit,
     )
 
     fun save(config: Config) {
@@ -252,6 +263,7 @@ object AiBgMusic {
         volume = config.volume
         preloadChapters = config.preloadChapters
         preloadWholeBook = config.preloadWholeBook
+        promptMusicCandidateLimit = config.promptMusicCandidateLimit
         updateVolume()
     }
 
@@ -1209,7 +1221,8 @@ object AiBgMusic {
         content: String,
         tracks: List<MusicTrack>,
     ): List<MusicTrack> {
-        if (tracks.size <= 80) return tracks
+        val limit = promptMusicCandidateLimit.coerceIn(50, 500)
+        if (tracks.size <= limit) return tracks
 
         val chapterText = listOf(
             chapterTitle,
@@ -1225,13 +1238,13 @@ object AiBgMusic {
         val matched = scored
             .filter { it.second > 0 }
             .map { it.first }
-            .take(70)
+            .take((limit * 0.85f).toInt().coerceAtLeast(1))
 
         val fill = tracks
             .filterNot { track -> matched.any { it.name == track.name } }
-            .take(80 - matched.size)
+            .take(limit - matched.size)
 
-        return (matched + fill).take(80)
+        return (matched + fill).take(limit)
     }
 
     private fun parseAiScenes(contentText: String): List<AiScene> {

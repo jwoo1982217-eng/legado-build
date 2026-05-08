@@ -349,6 +349,22 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
         preloadSlider.addOnChangeListener { _, value, _ -> updatePreloadText(value) }
         root.addView(preloadSlider)
 
+        label("AI 候选音乐数量")
+        val candidateLimitText = TextView(context)
+        root.addView(candidateLimitText)
+        val candidateLimitSlider = Slider(context).apply {
+            valueFrom = 50f
+            valueTo = 500f
+            stepSize = 10f
+            value = config.promptMusicCandidateLimit.coerceIn(50, 500).toFloat()
+        }
+        fun updateCandidateLimitText(value: Float) {
+            candidateLimitText.text = "每次分析最多把 ${value.toInt()} 首候选音乐发给 AI；本地音乐库仍完整读取。"
+        }
+        updateCandidateLimitText(candidateLimitSlider.value)
+        candidateLimitSlider.addOnChangeListener { _, value, _ -> updateCandidateLimitText(value) }
+        root.addView(candidateLimitSlider)
+
         label("背景音乐音量")
         val volumeText = TextView(context)
         root.addView(volumeText)
@@ -372,6 +388,7 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
                 AiBgMusic.scenesPerMusic = scenesPerMusicSlider.value.toInt()
                 AiBgMusic.preloadWholeBook = preloadWholeBook.isChecked
                 AiBgMusic.preloadChapters = preloadSlider.value.toInt()
+                AiBgMusic.promptMusicCandidateLimit = candidateLimitSlider.value.toInt()
                 toastOnUi("智能背景音乐设置已保存")
                 dismissAllowingStateLoss()
             }
