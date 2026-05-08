@@ -1576,22 +1576,23 @@ class ReadBookActivity : BaseReadBookActivity(),
         ReadBook.book?.let {
             AiBgMusic.ensureAnalysis(it, ReadBook.durChapterIndex, ReadBook.curTextChapter, force = false)
         }
-        AlertDialog.Builder(this)
-            .setTitle("背景音乐播放列表")
-            .setMessage(AiBgMusic.playlistText(ReadBook.book?.name))
-            .setPositiveButton("重新分析") { _, _ -> confirmAiBgMusicReanalyze() }
-            .setNegativeButton(android.R.string.ok, null)
-            .show()
+        showRefreshableAiBgMusicDialog(
+            title = "背景音乐播放列表",
+            messageProvider = { AiBgMusic.playlistText(ReadBook.book?.name) },
+            positiveText = "重新分析",
+            positiveAction = { confirmAiBgMusicReanalyze() }
+        )
     }
 
     private fun showAiBgMusicAnalysisDialog() {
         ReadBook.book?.let {
             AiBgMusic.ensureAnalysis(it, ReadBook.durChapterIndex, ReadBook.curTextChapter, force = false)
         }
-        AlertDialog.Builder(this)
-            .setTitle("AI 分析详情")
-            .setMessage(AiBgMusic.playlistDetailText(ReadBook.book?.name))
-            .setPositiveButton("重新分析本章") { _, _ ->
+        showRefreshableAiBgMusicDialog(
+            title = "AI 分析详情",
+            messageProvider = { AiBgMusic.playlistDetailText(ReadBook.book?.name) },
+            positiveText = "重新分析本章",
+            positiveAction = {
                 ReadBook.book?.let {
                     AiBgMusic.analyzeRange(
                         it,
@@ -1602,9 +1603,37 @@ class ReadBookActivity : BaseReadBookActivity(),
                     )
                     toastOnUi("正在重新分析本章")
                 }
-            }
+            },
+        )
+    }
+
+    private fun showRefreshableAiBgMusicDialog(
+        title: String,
+        messageProvider: () -> String,
+        positiveText: String,
+        positiveAction: () -> Unit,
+    ) {
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(messageProvider())
+            .setPositiveButton(positiveText) { _, _ -> positiveAction() }
             .setNegativeButton(android.R.string.ok, null)
-            .show()
+            .create()
+
+        lateinit var refresh: Runnable
+        refresh = Runnable {
+            if (dialog.isShowing) {
+                dialog.setMessage(messageProvider())
+                handler.postDelayed(refresh, 1500)
+            }
+        }
+        dialog.setOnShowListener {
+            handler.postDelayed(refresh, 1500)
+        }
+        dialog.setOnDismissListener {
+            handler.removeCallbacks(refresh)
+        }
+        dialog.show()
     }
 
     private fun confirmAiBgMusicReanalyze() {

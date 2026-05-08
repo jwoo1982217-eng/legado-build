@@ -7,6 +7,7 @@ import androidx.documentfile.provider.DocumentFile
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
+import io.legado.app.BuildConfig
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.EventBus
 import io.legado.app.data.appDb
@@ -626,7 +627,31 @@ object AiBgMusic {
                 val chapterKey = "${book.bookUrl}#$index"
                 if (!analyzingChapterKeys.add(chapterKey)) return@forEach
                 try {
+                    saveChapterAnalysis(
+                        ChapterAnalysis(
+                            bookName = book.name,
+                            chapterTitle = if (index == startChapterIndex) currentChapter?.title.orEmpty() else "",
+                            chapterIndex = index,
+                            status = STATUS_ANALYZING,
+                            statusMessage = "后台分析任务已开始，正在读取章节正文。",
+                            modeKey = modeKey(),
+                        )
+                    )
                     analyzeChapter(book, index, if (index == startChapterIndex) currentChapter else null, tracks)
+                } catch (e: Throwable) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    val message = e.localizedMessage.orEmpty().ifBlank { e::class.java.simpleName }
+                    AppLog.putDebug("AI背景音乐：章节 ${index + 1} 分析异常：$message")
+                    saveChapterAnalysis(
+                        ChapterAnalysis(
+                            bookName = book.name,
+                            chapterTitle = if (index == startChapterIndex) currentChapter?.title.orEmpty() else "",
+                            chapterIndex = index,
+                            status = STATUS_FAILED,
+                            statusMessage = "后台分析异常：$message",
+                            modeKey = modeKey(),
+                        )
+                    )
                 } finally {
                     analyzingChapterKeys.remove(chapterKey)
                 }
@@ -762,6 +787,7 @@ object AiBgMusic {
         }.ifBlank { "无" }
         return listOf(
             "$title 暂无记录，但已进入诊断。",
+            "appVersion=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})",
             "bookName=${bookName.orEmpty().ifBlank { "未知" }}",
             "enabled=$enabled",
             "musicDir=$dir",
