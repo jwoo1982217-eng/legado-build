@@ -66,6 +66,8 @@ object BookController {
                 "chapterIndex" to io.legado.app.model.ReadBook.durChapterIndex,
                 "chapterTitle" to chapter.title,
                 "position" to io.legado.app.model.ReadBook.durChapterPos,
+                "audioPreloadEnabled" to AppConfig.audioPreloadEnabled,
+                "audioPreDownloadNum" to AppConfig.audioPreDownloadNum,
                 "text" to text,
                 "textLen" to text.length,
                 "textHash" to textHash,
