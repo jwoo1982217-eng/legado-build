@@ -546,7 +546,7 @@ object AiBgMusic {
             .coerceAtMost(appDb.bookChapterDao.getChapterCount(book.bookUrl))
         val indices = startChapterIndex until endExclusive
 
-        if (indices.isNotEmpty()) {
+        if (endExclusive > startChapterIndex) {
             saveChapterAnalysis(
                 ChapterAnalysis(
                     bookName = book.name,
