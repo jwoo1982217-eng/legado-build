@@ -621,10 +621,23 @@ object AiBgMusic {
         if (dir.isBlank()) return emptyList()
         return if (dir.startsWith("content://")) {
             val root = DocumentFile.fromTreeUri(appCtx, Uri.parse(dir)) ?: return emptyList()
-            root.listFiles()
-                .filter { it.isFile && it.name?.isMusicFile() == true }
-                .map { MusicTrack(it.name.orEmpty(), it.uri.toString()) }
-                .sortedBy { it.name }
+
+            fun collectMusicFiles(file: DocumentFile, out: MutableList<MusicTrack>) {
+                file.listFiles().forEach { child ->
+                    when {
+                        child.isFile && child.name?.isMusicFile() == true -> {
+                            out.add(MusicTrack(child.name.orEmpty(), child.uri.toString()))
+                        }
+                        child.isDirectory -> {
+                            collectMusicFiles(child, out)
+                        }
+                    }
+                }
+            }
+
+            val tracks = arrayListOf<MusicTrack>()
+            collectMusicFiles(root, tracks)
+            tracks.sortedBy { it.name }
         } else {
             File(dir).walkTopDown()
                 .filter { it.isFile && it.name.isMusicFile() }
