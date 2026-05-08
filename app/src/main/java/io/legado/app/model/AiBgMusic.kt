@@ -499,7 +499,20 @@ object AiBgMusic {
     }
 
     fun ensureAnalysis(book: Book?, chapterIndex: Int, chapter: TextChapter?, force: Boolean = false) {
-        if (!enabled || book == null) return
+        if (book == null) return
+        if (!enabled) {
+            saveChapterAnalysis(
+                ChapterAnalysis(
+                    bookName = book.name,
+                    chapterTitle = chapter?.title.orEmpty(),
+                    chapterIndex = chapterIndex,
+                    status = STATUS_FAILED,
+                    statusMessage = "智能背景音乐未开启，请先在设置中打开智能背景音乐总开关并保存。",
+                    modeKey = modeKey(),
+                )
+            )
+            return
+        }
         val count = if (preloadWholeBook) {
             (appDb.bookChapterDao.getChapterCount(book.bookUrl) - chapterIndex).coerceAtLeast(1)
         } else {
@@ -532,6 +545,20 @@ object AiBgMusic {
         val endExclusive = (startChapterIndex + chapterCount)
             .coerceAtMost(appDb.bookChapterDao.getChapterCount(book.bookUrl))
         val indices = startChapterIndex until endExclusive
+
+        if (indices.isNotEmpty()) {
+            saveChapterAnalysis(
+                ChapterAnalysis(
+                    bookName = book.name,
+                    chapterTitle = currentChapter?.title.orEmpty(),
+                    chapterIndex = startChapterIndex,
+                    status = STATUS_ANALYZING,
+                    statusMessage = "AI 背景音乐分析已触发，正在准备整章内容和音乐列表。",
+                    modeKey = modeKey(),
+                )
+            )
+        }
+
         analyzeJob = scope.launch {
             indices.forEach { index ->
                 val old = chapterAnalysis(book.name, index)

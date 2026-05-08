@@ -1585,6 +1585,9 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun showAiBgMusicAnalysisDialog() {
+        ReadBook.book?.let {
+            AiBgMusic.ensureAnalysis(it, ReadBook.durChapterIndex, ReadBook.curTextChapter, force = false)
+        }
         AlertDialog.Builder(this)
             .setTitle("AI 分析详情")
             .setMessage(AiBgMusic.playlistDetailText(ReadBook.book?.name))
