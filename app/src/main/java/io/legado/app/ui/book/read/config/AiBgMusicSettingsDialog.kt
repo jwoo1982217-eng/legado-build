@@ -3,8 +3,12 @@ package io.legado.app.ui.book.read.config
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.text.InputType
+import android.text.method.HideReturnsTransformationMethod
+import android.text.method.PasswordTransformationMethod
+import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.CheckBox
@@ -29,6 +33,7 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
 
     private val callback: Callback? get() = activity as? Callback
     private var promptNameView: TextView? = null
+    private var modelProfileNameView: TextView? = null
     private data class ModelPreset(
         val provider: String,
         val label: String,
@@ -85,6 +90,49 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
             }.also(root::addView)
         }
 
+        fun secretEdit(text: String, hint: String): EditText {
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
+            val input = EditText(context).apply {
+                setText(text)
+                this.hint = hint
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                transformationMethod = PasswordTransformationMethod.getInstance()
+                setSingleLine(true)
+                setSelection(this.text?.length ?: 0)
+            }
+
+            var visible = false
+            val toggle = ImageButton(context).apply {
+                setImageResource(R.drawable.ic_visibility_off)
+                contentDescription = "显示密钥"
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setPadding(10.dpToPx())
+                setOnClickListener {
+                    visible = !visible
+                    input.transformationMethod = if (visible) {
+                        HideReturnsTransformationMethod.getInstance()
+                    } else {
+                        PasswordTransformationMethod.getInstance()
+                    }
+                    setImageResource(if (visible) R.drawable.ic_visibility_on else R.drawable.ic_visibility_off)
+                    contentDescription = if (visible) "隐藏密钥" else "显示密钥"
+                    input.setSelection(input.text?.length ?: 0)
+                }
+            }
+
+            row.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(
+                toggle,
+                LinearLayout.LayoutParams(48.dpToPx(), 48.dpToPx())
+            )
+            root.addView(row)
+            return input
+        }
+
         label("背景音乐文件目录")
         val musicDir = edit(config.musicDir, "选择或粘贴背景音乐文件夹路径 / content:// 目录")
         root.addView(MaterialButton(context).apply {
@@ -122,6 +170,7 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
             } else {
                 "模型：${matched?.label ?: modelName.text?.toString()?.ifBlank { "请选择" }}"
             }
+            modelProfileNameView?.text = "当前密钥配置：${AiBgMusic.selectedModelProfileName.ifBlank { "未选择" }}"
         }
 
         fun applyPreset(preset: ModelPreset) {
@@ -164,10 +213,37 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
         refreshPresetButtons()
 
         label("密钥")
-        val modelKey = edit(config.modelKey, "可选，测试链接会带 Bearer token").apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setSelection(text?.length ?: 0)
+        val modelKey = secretEdit(config.modelKey, "可选，测试链接会带 Bearer token")
+
+        label("密钥管理")
+        modelProfileNameView = TextView(context).apply {
+            text = "当前密钥配置：${AiBgMusic.selectedModelProfileName.ifBlank { "未选择" }}"
+            textSize = 15f
         }
+        root.addView(modelProfileNameView)
+        root.addView(MaterialButton(context).apply {
+            text = "管理密钥/模型配置"
+            setOnClickListener {
+                showModelProfilesDialog(
+                    currentProvider = providerName,
+                    currentUrl = modelUrl.text?.toString().orEmpty(),
+                    currentName = modelName.text?.toString().orEmpty(),
+                    currentKey = modelKey.text?.toString().orEmpty()
+                ) { profile ->
+                    providerName = profile.provider.ifBlank {
+                        presets.firstOrNull {
+                            it.baseUrl == profile.modelUrl && it.model == profile.modelName
+                        }?.provider ?: "自定义"
+                    }
+                    providerPresets = presets.filter { it.provider == providerName }
+                    modelUrl.setText(profile.modelUrl)
+                    modelName.setText(profile.modelName)
+                    modelKey.setText(profile.modelKey)
+                    modelKey.setSelection(modelKey.text?.length ?: 0)
+                    refreshPresetButtons()
+                }
+            }
+        })
 
         root.addView(MaterialButton(context).apply {
             text = "自定义接入"
@@ -191,7 +267,7 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
         root.addView(MaterialButton(context).apply {
             text = "测试链接"
             setOnClickListener {
-                saveFromViews(musicDir, modelUrl, modelName, modelKey, null)
+                saveFromViews(musicDir, modelUrl, modelName, modelKey, null, providerName)
                 lifecycleScope.launch {
                     val message = withContext(Dispatchers.IO) {
                         AiBgMusic.testModel().getOrElse { e -> "测试失败：${e.localizedMessage}" }
@@ -292,7 +368,7 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
         root.addView(MaterialButton(context).apply {
             text = "保存"
             setOnClickListener {
-                saveFromViews(musicDir, modelUrl, modelName, modelKey, frequencySlider to volumeSlider)
+                saveFromViews(musicDir, modelUrl, modelName, modelKey, frequencySlider to volumeSlider, providerName)
                 AiBgMusic.scenesPerMusic = scenesPerMusicSlider.value.toInt()
                 AiBgMusic.preloadWholeBook = preloadWholeBook.isChecked
                 AiBgMusic.preloadChapters = preloadSlider.value.toInt()
@@ -309,7 +385,8 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
         modelUrl: EditText,
         modelName: EditText,
         modelKey: EditText,
-        sliders: Pair<Slider, Slider>?
+        sliders: Pair<Slider, Slider>?,
+        providerName: String = "",
     ) {
         val old = AiBgMusic.config()
         AiBgMusic.save(
@@ -323,6 +400,8 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
                 volume = sliders?.second?.value?.toInt() ?: old.volume,
             )
         )
+        AiBgMusic.upsertSelectedModelProfile(providerName)
+        modelProfileNameView?.text = "当前密钥配置：${AiBgMusic.selectedModelProfileName.ifBlank { "未选择" }}"
     }
 
     private fun showCustomModelDialog(
@@ -350,11 +429,13 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
         val keyEdit = EditText(context).apply {
             hint = "API Key，可填 sk-xxx 或 Bearer sk-xxx"
             setText(initKey.ifBlank { AiBgMusic.modelKey })
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
         }
 
         root.addView(urlEdit)
         root.addView(nameEdit)
-        root.addView(keyEdit)
+        root.addView(secretRow(keyEdit))
 
         AlertDialog.Builder(context)
             .setTitle("自定义模型接入")
@@ -373,6 +454,241 @@ class AiBgMusicSettingsDialog : BaseBottomSheetDialogFragment(0) {
                 onApply(url, name, key)
             }
             .show()
+    }
+
+    private fun showModelProfilesDialog(
+        currentProvider: String,
+        currentUrl: String,
+        currentName: String,
+        currentKey: String,
+        onApply: (AiBgMusic.ModelProfile) -> Unit
+    ) {
+        val context = requireContext()
+        val profiles = AiBgMusic.modelProfiles()
+        val selectedName = AiBgMusic.selectedModelProfileName
+
+        val listRoot = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(8.dpToPx(), 8.dpToPx(), 8.dpToPx(), 8.dpToPx())
+        }
+
+        var dialog: AlertDialog? = null
+
+        fun selectProfile(profile: AiBgMusic.ModelProfile) {
+            AiBgMusic.selectModelProfile(profile)
+            modelProfileNameView?.text = "当前密钥配置：${profile.name}"
+            onApply(profile)
+            toastOnUi("已切换模型配置")
+            dialog?.dismiss()
+        }
+
+        if (profiles.isEmpty()) {
+            listRoot.addView(TextView(context).apply {
+                text = "还没有保存的模型配置"
+                textSize = 15f
+                setPadding(8.dpToPx())
+            })
+        }
+
+        profiles.forEach { profile ->
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 6.dpToPx(), 0, 6.dpToPx())
+            }
+
+            val radio = android.widget.RadioButton(context).apply {
+                isChecked = profile.name == selectedName
+                contentDescription = "选择 ${profile.name}"
+                setOnClickListener { selectProfile(profile) }
+            }
+
+            val title = TextView(context).apply {
+                text = profile.name
+                textSize = 16f
+                setPadding(6.dpToPx(), 0, 6.dpToPx(), 0)
+                setOnClickListener {
+                    dialog?.dismiss()
+                    showModelProfileEditor(profile, onApply)
+                }
+            }
+
+            val subtitle = TextView(context).apply {
+                text = listOf(profile.provider, profile.modelName)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+                    .ifBlank { profile.modelUrl }
+                textSize = 12f
+                setPadding(6.dpToPx(), 0, 6.dpToPx(), 0)
+            }
+
+            val textBox = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(title)
+                addView(subtitle)
+            }
+
+            val edit = TextView(context).apply {
+                text = "编辑"
+                textSize = 14f
+                setPadding(12.dpToPx(), 8.dpToPx(), 12.dpToPx(), 8.dpToPx())
+                setOnClickListener {
+                    dialog?.dismiss()
+                    showModelProfileEditor(profile, onApply)
+                }
+            }
+
+            row.addView(radio)
+            row.addView(
+                textBox,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
+            row.addView(edit)
+
+            listRoot.addView(
+                row,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        val scrollView = android.widget.ScrollView(context).apply {
+            addView(listRoot)
+        }
+
+        dialog = AlertDialog.Builder(context)
+            .setTitle("密钥/模型配置")
+            .setView(scrollView)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("新增") { _, _ ->
+                showModelProfileEditor(
+                    AiBgMusic.ModelProfile(
+                        name = "新配置",
+                        provider = currentProvider.takeUnless { it == "自定义" }.orEmpty(),
+                        modelUrl = currentUrl,
+                        modelName = currentName,
+                        modelKey = currentKey,
+                    ),
+                    onApply
+                )
+            }
+            .create()
+
+        dialog?.show()
+    }
+
+    private fun showModelProfileEditor(
+        profile: AiBgMusic.ModelProfile,
+        onApply: (AiBgMusic.ModelProfile) -> Unit
+    ) {
+        val context = requireContext()
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20.dpToPx())
+        }
+
+        val nameEdit = EditText(context).apply {
+            hint = "配置名称，例如 DeepSeek 日常"
+            setText(profile.name)
+        }
+        val providerEdit = EditText(context).apply {
+            hint = "厂牌，可选"
+            setText(profile.provider)
+        }
+        val urlEdit = EditText(context).apply {
+            hint = "模型地址，例如 https://api.openai.com/v1"
+            setText(profile.modelUrl)
+        }
+        val modelEdit = EditText(context).apply {
+            hint = "模型名，例如 gpt-4o-mini"
+            setText(profile.modelName)
+        }
+        val keyEdit = EditText(context).apply {
+            hint = "API Token"
+            setText(profile.modelKey)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
+        }
+
+        root.addView(nameEdit)
+        root.addView(providerEdit)
+        root.addView(urlEdit)
+        root.addView(modelEdit)
+        root.addView(secretRow(keyEdit))
+
+        AlertDialog.Builder(context)
+            .setTitle("编辑密钥/模型配置")
+            .setView(root)
+            .setPositiveButton("保存并选择") { _, _ ->
+                val name = nameEdit.text?.toString()?.trim().orEmpty()
+                val provider = providerEdit.text?.toString()?.trim().orEmpty()
+                val url = urlEdit.text?.toString()?.trim().orEmpty()
+                val model = modelEdit.text?.toString()?.trim().orEmpty()
+                val key = keyEdit.text?.toString()?.trim().orEmpty()
+
+                if (name.isBlank() || url.isBlank() || model.isBlank()) {
+                    toastOnUi("配置名称、模型地址、模型名不能为空")
+                    return@setPositiveButton
+                }
+
+                val newProfile = AiBgMusic.ModelProfile(name, provider, url, model, key)
+                val profiles = AiBgMusic.modelProfiles().toMutableList()
+                val index = profiles.indexOfFirst { it.name == profile.name }
+                    .takeIf { it >= 0 }
+                    ?: profiles.indexOfFirst { it.name == name }
+
+                if (index >= 0) profiles[index] = newProfile else profiles.add(newProfile)
+
+                AiBgMusic.saveModelProfiles(profiles)
+                AiBgMusic.selectModelProfile(newProfile)
+                modelProfileNameView?.text = "当前密钥配置：$name"
+                onApply(newProfile)
+                toastOnUi("模型配置已保存并选择")
+            }
+            .setNeutralButton("删除") { _, _ ->
+                val profiles = AiBgMusic.modelProfiles()
+                    .filterNot { it.name == profile.name }
+                AiBgMusic.saveModelProfiles(profiles)
+                if (AiBgMusic.selectedModelProfileName == profile.name) {
+                    AiBgMusic.selectedModelProfileName = profiles.firstOrNull()?.name.orEmpty()
+                }
+                modelProfileNameView?.text = "当前密钥配置：${AiBgMusic.selectedModelProfileName.ifBlank { "未选择" }}"
+                toastOnUi("模型配置已删除")
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun secretRow(editText: EditText): LinearLayout {
+        val context = requireContext()
+        var visible = false
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(editText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(
+                ImageButton(context).apply {
+                    setImageResource(R.drawable.ic_visibility_off)
+                    contentDescription = "显示密钥"
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    setPadding(10.dpToPx())
+                    setOnClickListener {
+                        visible = !visible
+                        editText.transformationMethod = if (visible) {
+                            HideReturnsTransformationMethod.getInstance()
+                        } else {
+                            PasswordTransformationMethod.getInstance()
+                        }
+                        setImageResource(if (visible) R.drawable.ic_visibility_on else R.drawable.ic_visibility_off)
+                        contentDescription = if (visible) "隐藏密钥" else "显示密钥"
+                        editText.setSelection(editText.text?.length ?: 0)
+                    }
+                },
+                LinearLayout.LayoutParams(48.dpToPx(), 48.dpToPx())
+            )
+        }
     }
 
     private fun showPromptProfilesDialog() {

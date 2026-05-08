@@ -42,6 +42,8 @@ object AiBgMusic {
     private const val KEY_MODEL_URL = "ai_bgm_model_url"
     private const val KEY_MODEL_NAME = "ai_bgm_model_name"
     private const val KEY_MODEL_KEY = "ai_bgm_model_key"
+    private const val KEY_MODEL_PROFILES = "ai_bgm_model_profiles"
+    private const val KEY_SELECTED_MODEL_PROFILE = "ai_bgm_selected_model_profile"
     private const val KEY_PROMPTS = "ai_bgm_prompts"
     private const val KEY_PROMPT_PROFILES = "ai_bgm_prompt_profiles"
     private const val KEY_SELECTED_PROMPT = "ai_bgm_selected_prompt"
@@ -102,6 +104,14 @@ object AiBgMusic {
     data class PromptProfile(
         val name: String,
         val prompt: String,
+    )
+
+    data class ModelProfile(
+        val name: String,
+        val provider: String = "",
+        val modelUrl: String = "",
+        val modelName: String = "",
+        val modelKey: String = "",
     )
 
     private data class AiScene(
@@ -276,6 +286,82 @@ object AiBgMusic {
         return appCtx.getPrefString(KEY_SELECTED_PROMPT).orEmpty().ifBlank {
             promptProfiles().first().name
         }
+    }
+
+    fun modelProfiles(): List<ModelProfile> {
+        val json = appCtx.getPrefString(KEY_MODEL_PROFILES).orEmpty()
+        val profiles = runCatching {
+            if (json.isBlank()) emptyList()
+            else GSON.fromJson(json, Array<ModelProfile>::class.java).toList()
+        }.getOrDefault(emptyList())
+            .filter { it.name.isNotBlank() && it.modelUrl.isNotBlank() && it.modelName.isNotBlank() }
+
+        return profiles.ifEmpty {
+            if (modelUrl.isNotBlank() || modelName.isNotBlank() || modelKey.isNotBlank()) {
+                listOf(
+                    ModelProfile(
+                        name = "当前配置",
+                        modelUrl = modelUrl,
+                        modelName = modelName,
+                        modelKey = modelKey,
+                    )
+                )
+            } else {
+                emptyList()
+            }
+        }
+    }
+
+    fun saveModelProfiles(profiles: List<ModelProfile>) {
+        val normalized = profiles
+            .map {
+                it.copy(
+                    name = it.name.trim(),
+                    provider = it.provider.trim(),
+                    modelUrl = it.modelUrl.trim(),
+                    modelName = it.modelName.trim(),
+                    modelKey = it.modelKey.trim(),
+                )
+            }
+            .filter { it.name.isNotBlank() && it.modelUrl.isNotBlank() && it.modelName.isNotBlank() }
+            .distinctBy { it.name }
+
+        appCtx.putPrefString(KEY_MODEL_PROFILES, GSON.toJson(normalized))
+        if (selectedModelProfileName.isNotBlank() && normalized.none { it.name == selectedModelProfileName }) {
+            selectedModelProfileName = normalized.firstOrNull()?.name.orEmpty()
+        }
+    }
+
+    var selectedModelProfileName: String
+        get() = appCtx.getPrefString(KEY_SELECTED_MODEL_PROFILE).orEmpty()
+        set(value) = appCtx.putPrefString(KEY_SELECTED_MODEL_PROFILE, value)
+
+    fun selectedModelProfile(): ModelProfile? {
+        return modelProfiles().firstOrNull { it.name == selectedModelProfileName }
+    }
+
+    fun selectModelProfile(profile: ModelProfile) {
+        selectedModelProfileName = profile.name
+        modelUrl = profile.modelUrl
+        modelName = profile.modelName
+        modelKey = profile.modelKey
+    }
+
+    fun upsertSelectedModelProfile(provider: String = "") {
+        val selectedName = selectedModelProfileName
+        if (selectedName.isBlank()) return
+
+        val profiles = modelProfiles().toMutableList()
+        val index = profiles.indexOfFirst { it.name == selectedName }
+        if (index < 0) return
+
+        profiles[index] = profiles[index].copy(
+            provider = provider.ifBlank { profiles[index].provider },
+            modelUrl = modelUrl,
+            modelName = modelName,
+            modelKey = modelKey,
+        )
+        saveModelProfiles(profiles)
     }
 
     fun testModel(): Result<String> = runCatching {
