@@ -513,10 +513,37 @@ object AiBgMusic {
             )
             return
         }
-        val count = if (preloadWholeBook) {
-            (appDb.bookChapterDao.getChapterCount(book.bookUrl) - chapterIndex).coerceAtLeast(1)
-        } else {
-            preloadChapters
+        val existing = chapterAnalysis(book.name, chapterIndex)
+        if (force || existing?.status != STATUS_DONE || existing.modeKey != modeKey()) {
+            saveChapterAnalysis(
+                ChapterAnalysis(
+                    bookName = book.name,
+                    chapterTitle = chapter?.title.orEmpty(),
+                    chapterIndex = chapterIndex,
+                    status = STATUS_ANALYZING,
+                    statusMessage = "AI 背景音乐分析已触发，正在排队准备整章内容和音乐列表。",
+                    modeKey = modeKey(),
+                )
+            )
+        }
+        val count = runCatching {
+            if (preloadWholeBook) {
+                (appDb.bookChapterDao.getChapterCount(book.bookUrl) - chapterIndex).coerceAtLeast(1)
+            } else {
+                preloadChapters
+            }
+        }.getOrElse { e ->
+            saveChapterAnalysis(
+                ChapterAnalysis(
+                    bookName = book.name,
+                    chapterTitle = chapter?.title.orEmpty(),
+                    chapterIndex = chapterIndex,
+                    status = STATUS_FAILED,
+                    statusMessage = "读取章节数量失败：${e.localizedMessage.orEmpty()}",
+                    modeKey = modeKey(),
+                )
+            )
+            return
         }
         analyzeRange(book, chapterIndex, count, chapter, force)
     }
@@ -528,7 +555,19 @@ object AiBgMusic {
         currentChapter: TextChapter?,
         force: Boolean = false,
     ) {
-        val tracks = listMusicFiles()
+        val tracks = runCatching { listMusicFiles() }.getOrElse { e ->
+            saveChapterAnalysis(
+                ChapterAnalysis(
+                    bookName = book.name,
+                    chapterTitle = currentChapter?.title.orEmpty(),
+                    chapterIndex = startChapterIndex,
+                    status = STATUS_FAILED,
+                    statusMessage = "读取背景音乐目录失败：${e.localizedMessage.orEmpty()}",
+                    modeKey = modeKey(),
+                )
+            )
+            return
+        }
         if (tracks.isEmpty()) {
             saveChapterAnalysis(
                 ChapterAnalysis(
@@ -568,7 +607,6 @@ object AiBgMusic {
             indices.forEach { index ->
                 val old = chapterAnalysis(book.name, index)
                 if (!force && old?.status == STATUS_DONE && old.modeKey == modeKey()) return@forEach
-                if (!force && old?.status == STATUS_ANALYZING && old.modeKey == modeKey()) return@forEach
 
                 val chapterKey = "${book.bookUrl}#$index"
                 if (!analyzingChapterKeys.add(chapterKey)) return@forEach
@@ -702,6 +740,11 @@ object AiBgMusic {
         val dir = musicDir.trim().ifBlank { "未设置" }
         val url = modelUrl.trim().ifBlank { "未设置" }
         val model = modelName.trim().ifBlank { "未设置" }
+        val storedJson = appCtx.getPrefString(KEY_PLAYLIST).orEmpty()
+        val storedAnalyses = loadAnalyses()
+        val storedSummary = storedAnalyses.takeLast(5).joinToString("；") {
+            "${it.bookName.ifBlank { "未知书名" }}#${it.chapterIndex + 1}:${it.status}"
+        }.ifBlank { "无" }
         return listOf(
             "$title 暂无记录，但已进入诊断。",
             "bookName=${bookName.orEmpty().ifBlank { "未知" }}",
@@ -713,6 +756,9 @@ object AiBgMusic {
             "preloadWholeBook=$preloadWholeBook",
             "modelUrl=$url",
             "modelName=$model",
+            "storedJsonLength=${storedJson.length}",
+            "storedAnalysisCount=${storedAnalyses.size}",
+            "storedRecent=$storedSummary",
             "提示：如果 enabled=false，请先打开智能背景音乐总开关并保存；如果 musicFileCount=0，请重新选择背景音乐目录。"
         ).joinToString("\n")
     }
@@ -921,7 +967,10 @@ object AiBgMusic {
                     )
                 }
             }
-        }.getOrDefault(emptyList())
+        }.getOrElse { e ->
+            AppLog.putDebug("AI背景音乐：播放列表记录读取失败，已进入诊断。${e.localizedMessage.orEmpty()}")
+            emptyList()
+        }
     }
 
     private fun ChapterAnalysis.normalizedOrNull(): ChapterAnalysis? {
