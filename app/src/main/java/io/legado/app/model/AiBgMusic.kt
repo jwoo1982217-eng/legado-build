@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import splitties.init.appCtx
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 object AiBgMusic {
@@ -1133,7 +1134,8 @@ object AiBgMusic {
     ): Result<List<AiScene>> = runCatching {
         require(modelUrl.isNotBlank()) { "请先填写模型地址" }
         require(modelName.isNotBlank()) { "请先填写模型名" }
-        val trackNames = tracks.joinToString("\n") { "- ${it.name}" }
+        val promptTracks = promptCandidateTracks(chapterTitle, content, tracks)
+        val trackNames = promptTracks.joinToString("\n") { "- ${it.name}" }
         val modeText = when (frequency) {
             FREQUENCY_BOOK -> "整本书一种基调音乐，当前章节只输出 1 个整体场景。"
             FREQUENCY_CHAPTER -> "每章一种背景音乐，当前章节只输出 1 个整体场景。"
@@ -1145,11 +1147,11 @@ object AiBgMusic {
             播放模式：$modeText
             章节标题：$chapterTitle
 
-            本地背景音乐文件名：
+            本地背景音乐文件名候选（共 ${tracks.size} 首，已按章节内容筛选 ${promptTracks.size} 首）：
             $trackNames
 
             章节正文：
-            ${content.take(12000)}
+            ${content.take(8000)}
 
             任务：阅读整章正文，判断这一章有几个剧情场景；每个场景都要从“本地背景音乐文件名”中选择一首最贴合的音乐。
             要求：
@@ -1180,7 +1182,13 @@ object AiBgMusic {
             }
             .post(body)
             .build()
-        okHttpClient.newCall(request).execute().use { response ->
+        val aiClient = okHttpClient.newBuilder()
+            .callTimeout(90, TimeUnit.SECONDS)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
+        aiClient.newCall(request).execute().use { response ->
             val responseText = response.body.string()
             if (!response.isSuccessful) {
                 throw IllegalStateException(
@@ -1194,6 +1202,36 @@ object AiBgMusic {
             }
             scenes
         }
+    }
+
+    private fun promptCandidateTracks(
+        chapterTitle: String,
+        content: String,
+        tracks: List<MusicTrack>,
+    ): List<MusicTrack> {
+        if (tracks.size <= 80) return tracks
+
+        val chapterText = listOf(
+            chapterTitle,
+            detectMood(content),
+            content.take(2400),
+            content.takeLast(1200),
+        ).joinToString("_")
+
+        val scored = tracks
+            .map { it to scoreMusicTrack(it.name, chapterText) }
+            .sortedWith(compareByDescending<Pair<MusicTrack, Int>> { it.second }.thenBy { it.first.name })
+
+        val matched = scored
+            .filter { it.second > 0 }
+            .map { it.first }
+            .take(70)
+
+        val fill = tracks
+            .filterNot { track -> matched.any { it.name == track.name } }
+            .take(80 - matched.size)
+
+        return (matched + fill).take(80)
     }
 
     private fun parseAiScenes(contentText: String): List<AiScene> {
