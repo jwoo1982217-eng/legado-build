@@ -386,6 +386,14 @@ fun BackupConfigScreen(
                 )
 
                 ClickableSettingItem(
+                    title = "本地恢复备份",
+                    description = "从本机选择备份 zip 文件恢复",
+                    onClick = {
+                        restoreFileLauncher.launch(arrayOf("application/zip"))
+                    }
+                )
+
+                ClickableSettingItem(
                     title = stringResource(R.string.restore_ignore),
                     description = stringResource(R.string.restore_ignore_summary),
                     onClick = { showBackupIgnoreDialog = true }
