@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import io.legado.app.data.entities.HttpTTS
 
 object TtsServerDbBridge {
 
@@ -14,8 +15,20 @@ object TtsServerDbBridge {
     const val TTS_PACKAGE = "com.github.jing332.tts_server_android.jtts"
     private const val BRIDGE_AUTHORITY = "com.github.jing332.tts_server_android.jtts.legado.bridge"
     private const val ACTION_START = "com.github.jing332.tts_server_android.jtts.action.LEGADO_BRIDGE_START"
+    private const val FORWARDER_URL = "http://127.0.0.1:7120/api/tts"
+    private const val DIRECT_HTTP_TTS_ID = -72120L
 
     private val BRIDGE_URI: Uri = Uri.parse("content://$BRIDGE_AUTHORITY")
+
+    fun directHttpTts(): HttpTTS {
+        return HttpTTS(
+            id = DIRECT_HTTP_TTS_ID,
+            name = "J.TTS 直连",
+            url = "$FORWARDER_URL?engine=$TTS_PACKAGE&text={{java.encodeURI(speakText)}}&rate={{speakSpeed * 2}}&pitch=50",
+            contentType = "audio/x-wav",
+            concurrentRate = "100"
+        )
+    }
 
     fun ensureRunning(context: Context) {
         val app = context.applicationContext

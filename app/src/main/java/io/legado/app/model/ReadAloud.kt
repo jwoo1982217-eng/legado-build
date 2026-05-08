@@ -8,12 +8,16 @@ import io.legado.app.constant.EventBus
 import io.legado.app.constant.IntentAction
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.HttpTTS
+import io.legado.app.help.TtsServerDbBridge
 import io.legado.app.help.config.AppConfig
+import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.service.HttpReadAloudService
 import io.legado.app.service.TTSReadAloudService
+import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.StringUtils
+import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.startForegroundServiceCompat
 import io.legado.app.utils.toastOnUi
@@ -26,14 +30,21 @@ object ReadAloud {
 
     private fun getReadAloudClass(): Class<*> {
         val ttsEngine = ttsEngine
-        if (ttsEngine.isNullOrBlank()) {
-            return TTSReadAloudService::class.java
-        }
-        if (StringUtils.isNumeric(ttsEngine)) {
+        if (!ttsEngine.isNullOrBlank() && StringUtils.isNumeric(ttsEngine)) {
             httpTTS = appDb.httpTTSDao.get(ttsEngine.toLong())
             if (httpTTS != null) {
                 return HttpReadAloudService::class.java
             }
+        }
+
+        val sysEngine = GSON.fromJsonObject<SelectItem<String>>(ttsEngine)
+            .getOrNull()
+            ?.value
+
+        if (ttsEngine.isNullOrBlank() || sysEngine.isNullOrBlank() || sysEngine == TtsServerDbBridge.TTS_PACKAGE) {
+            TtsServerDbBridge.ensureRunning(appCtx)
+            httpTTS = TtsServerDbBridge.directHttpTts()
+            return HttpReadAloudService::class.java
         }
         return TTSReadAloudService::class.java
     }
