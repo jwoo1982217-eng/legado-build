@@ -15,6 +15,7 @@ import io.legado.app.help.book.BookHelp
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.utils.GSON
+import io.legado.app.utils.defaultSharedPreferences
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.getPrefInt
 import io.legado.app.utils.getPrefString
@@ -142,6 +143,7 @@ object AiBgMusic {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var analyzeJob: Job? = null
     private val analyzingChapterKeys = ConcurrentHashMap.newKeySet<String>()
+    private val runtimeAnalyses = ConcurrentHashMap<String, ChapterAnalysis>()
 
     const val STATUS_ANALYZING = "analyzing"
     const val STATUS_DONE = "done"
@@ -927,8 +929,9 @@ object AiBgMusic {
                 modeKey = modeKey(),
             )
             if (index >= 0) old[index] = analysis else old.add(analysis)
+            runtimeAnalyses[analysisKey(analysis.bookName, analysis.chapterIndex)] = analysis
         }
-        appCtx.putPrefString(KEY_PLAYLIST, GSON.toJson(old.sortedBy { it.chapterIndex }))
+        saveAnalyses(old.sortedBy { it.chapterIndex })
     }
 
     private fun loadPlaylist(): List<PlaylistItem> {
@@ -941,34 +944,39 @@ object AiBgMusic {
     private fun saveChapterAnalysis(analysis: ChapterAnalysis) {
         val old = loadAnalyses().toMutableList()
         val index = old.indexOfFirst {
-            it.bookName == analysis.bookName && it.chapterIndex == analysis.chapterIndex
+            sameBookName(it.bookName, analysis.bookName) && it.chapterIndex == analysis.chapterIndex
         }
         if (index >= 0) old[index] = analysis else old.add(analysis)
-        appCtx.putPrefString(KEY_PLAYLIST, GSON.toJson(old.sortedWith(compareBy({ it.bookName }, { it.chapterIndex }))))
+        runtimeAnalyses[analysisKey(analysis.bookName, analysis.chapterIndex)] = analysis
+        saveAnalyses(old.sortedWith(compareBy({ it.bookName }, { it.chapterIndex })))
     }
 
     private fun chapterAnalysis(bookName: String, chapterIndex: Int): ChapterAnalysis? {
-        return loadAnalyses().firstOrNull { it.bookName == bookName && it.chapterIndex == chapterIndex }
+        return loadAnalyses().firstOrNull { sameBookName(it.bookName, bookName) && it.chapterIndex == chapterIndex }
     }
 
     private fun allAnalyses(bookName: String?): List<ChapterAnalysis> {
-        return loadAnalyses()
-            .filter { bookName.isNullOrBlank() || it.bookName == bookName }
+        val analyses = loadAnalyses()
+        val filtered = analyses
+            .filter { bookName.isNullOrBlank() || sameBookName(it.bookName, bookName) }
             .sortedBy { it.chapterIndex }
+        return filtered.ifEmpty {
+            if (bookName.isNullOrBlank()) emptyList() else analyses.sortedBy { it.chapterIndex }
+        }
     }
 
     private fun loadAnalyses(): List<ChapterAnalysis> {
         val json = appCtx.getPrefString(KEY_PLAYLIST).orEmpty()
-        if (json.isBlank()) return emptyList()
-        return runCatching {
+        val stored = if (json.isBlank()) emptyList() else runCatching {
             val array = JsonParser.parseString(json).asJsonArray
             val first = array.firstOrNull()?.asJsonObject
-            if (first?.has("items") == true || first?.has("status") == true) {
-                GSON.fromJson(json, Array<ChapterAnalysis>::class.java).toList()
-                    .mapNotNull { it.normalizedOrNull() }
-            } else {
-                val oldItems = GSON.fromJson(json, Array<PlaylistItem>::class.java).toList()
-                oldItems.map { it.normalized() }.groupBy { it.bookName to it.chapterIndex }.map { (key, items) ->
+            val isLegacyPlaylistItems = first?.let {
+                it.has("musicName") || it.has("musicUri") || it.has("sceneIndex") || (it.has("start") && it.has("end"))
+            } == true
+            if (isLegacyPlaylistItems) {
+                array.mapNotNull { item ->
+                    runCatching { GSON.fromJson(item, PlaylistItem::class.java).normalized() }.getOrNull()
+                }.groupBy { it.bookName to it.chapterIndex }.map { (key, items) ->
                     ChapterAnalysis(
                         bookName = key.first,
                         chapterTitle = items.firstOrNull()?.chapterTitle.orEmpty(),
@@ -979,11 +987,91 @@ object AiBgMusic {
                         modeKey = items.firstOrNull()?.modeKey ?: modeKey(),
                     )
                 }
+            } else {
+                array.mapNotNull { item -> jsonElementToChapterAnalysis(item) }
             }
         }.getOrElse { e ->
             AppLog.putDebug("AI背景音乐：播放列表记录读取失败，已进入诊断。${e.localizedMessage.orEmpty()}")
             emptyList()
         }
+        if (runtimeAnalyses.isEmpty()) return stored
+        val merged = stored.toMutableList()
+        runtimeAnalyses.values.forEach { analysis ->
+            val index = merged.indexOfFirst { sameBookName(it.bookName, analysis.bookName) && it.chapterIndex == analysis.chapterIndex }
+            if (index >= 0) merged[index] = analysis else merged.add(analysis)
+        }
+        return merged.sortedWith(compareBy({ it.bookName }, { it.chapterIndex }))
+    }
+
+    private fun saveAnalyses(analyses: List<ChapterAnalysis>) {
+        val json = GSON.toJson(analyses)
+        val ok = appCtx.defaultSharedPreferences.edit()
+            .putString(KEY_PLAYLIST, json)
+            .commit()
+        if (!ok) {
+            AppLog.putDebug("AI背景音乐：播放列表记录写入 SharedPreferences 失败，已保留内存记录。")
+        }
+    }
+
+    private fun jsonElementToChapterAnalysis(element: JsonElement): ChapterAnalysis? {
+        return runCatching {
+            val obj = element.asJsonObject
+            val items = obj["items"]?.takeIf { it.isJsonArray }?.asJsonArray
+                ?.mapNotNull { item ->
+                    runCatching { GSON.fromJson(item, PlaylistItem::class.java).normalized() }.getOrNull()
+                }
+                .orEmpty()
+            ChapterAnalysis(
+                bookName = obj.stringValue("bookName", "book", "name"),
+                chapterTitle = obj.stringValue("chapterTitle", "title"),
+                chapterIndex = obj.intValue("chapterIndex", "index"),
+                status = obj.stringValue("status").ifBlank {
+                    if (items.isEmpty()) STATUS_WAITING else STATUS_DONE
+                },
+                statusMessage = obj.stringValue("statusMessage", "message").ifBlank {
+                    if (items.isEmpty()) "AI 还在分析，请稍后刷新。" else "已完成，分成 ${items.size} 个播放单元。"
+                },
+                items = items,
+                modeKey = obj.stringValue("modeKey").ifBlank { items.firstOrNull()?.modeKey.orEmpty().ifBlank { modeKey() } },
+                updatedAt = obj.longValue("updatedAt").takeIf { it > 0 } ?: System.currentTimeMillis(),
+            ).normalizedOrNull()
+        }.getOrNull()
+    }
+
+    private fun com.google.gson.JsonObject.intValue(vararg keys: String): Int {
+        keys.forEach { key ->
+            val value = get(key)
+            if (value != null && value.isJsonPrimitive) return runCatching { value.asInt }.getOrDefault(0)
+        }
+        return 0
+    }
+
+    private fun com.google.gson.JsonObject.longValue(vararg keys: String): Long {
+        keys.forEach { key ->
+            val value = get(key)
+            if (value != null && value.isJsonPrimitive) return runCatching { value.asLong }.getOrDefault(0L)
+        }
+        return 0L
+    }
+
+    private fun analysisKey(bookName: String, chapterIndex: Int): String {
+        return "${normalizeBookMatchKey(bookName)}#$chapterIndex"
+    }
+
+    private fun sameBookName(a: String?, b: String?): Boolean {
+        if (a.isNullOrBlank() || b.isNullOrBlank()) return false
+        if (a == b) return true
+        val ak = normalizeBookMatchKey(a)
+        val bk = normalizeBookMatchKey(b)
+        return ak == bk || ak.contains(bk) || bk.contains(ak)
+    }
+
+    private fun normalizeBookMatchKey(value: String): String {
+        return value
+            .lowercase()
+            .replace(Regex("\\s+"), "")
+            .replace(Regex("[()（）\\[\\]【】《》<>〈〉「」『』_-]+"), "")
+            .trim()
     }
 
     private fun ChapterAnalysis.normalizedOrNull(): ChapterAnalysis? {
