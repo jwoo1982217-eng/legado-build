@@ -9,6 +9,7 @@ import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.MediaHelp
+import io.legado.app.help.TtsServerDbBridge
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.lib.dialogs.SelectItem
@@ -31,6 +32,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
     private var ttsInitFinish = false
     private val ttsUtteranceListener = TTSUtteranceListener()
     private var speakJob: Coroutine<*>? = null
+    private var currentEngine: String? = null
     private val TAG = "TTSReadAloudService"
 
     override fun onCreate() {
@@ -44,9 +46,18 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
     }
 
     @Synchronized
-    private fun initTts() {
+    private fun initTts(forceSystemDefault: Boolean = false) {
         ttsInitFinish = false
-        val engine = GSON.fromJsonObject<SelectItem<String>>(ReadAloud.ttsEngine).getOrNull()?.value
+        val configuredEngine = GSON.fromJsonObject<SelectItem<String>>(ReadAloud.ttsEngine).getOrNull()?.value
+        val engine = when {
+            forceSystemDefault -> ""
+            configuredEngine.isNullOrBlank() -> TtsServerDbBridge.TTS_PACKAGE
+            else -> configuredEngine
+        }
+        currentEngine = engine
+        if (engine == TtsServerDbBridge.TTS_PACKAGE) {
+            TtsServerDbBridge.ensureRunning(this)
+        }
         LogUtils.d(TAG, "initTts engine:$engine")
         textToSpeech = if (engine.isNullOrBlank()) {
             TextToSpeech(this, this)
@@ -64,6 +75,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
         }
         textToSpeech = null
         ttsInitFinish = false
+        currentEngine = null
     }
 
     override fun onInit(status: Int) {
@@ -74,6 +86,12 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                 play()
             }
         } else {
+            if (currentEngine == TtsServerDbBridge.TTS_PACKAGE) {
+                AppLog.putDebug("TTS Server 初始化失败，临时回退系统默认引擎")
+                clearTTS()
+                initTts(forceSystemDefault = true)
+                return
+            }
             toastOnUi(R.string.tts_init_failed)
         }
     }

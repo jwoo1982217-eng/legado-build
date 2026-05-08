@@ -11,7 +11,7 @@ object TtsServerDbBridge {
 
     private const val TAG = "TtsServerDbBridge"
 
-    private const val TTS_PACKAGE = "com.github.jing332.tts_server_android.jtts"
+    const val TTS_PACKAGE = "com.github.jing332.tts_server_android.jtts"
     private const val BRIDGE_AUTHORITY = "com.github.jing332.tts_server_android.jtts.legado.bridge"
     private const val ACTION_START = "com.github.jing332.tts_server_android.jtts.action.LEGADO_BRIDGE_START"
 
