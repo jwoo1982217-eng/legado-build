@@ -122,6 +122,12 @@ object AiBgMusic {
         val musicName: String = "",
     )
 
+    private data class PlaylistBuildResult(
+        val items: List<PlaylistItem>,
+        val statusMessage: String,
+        val usedFallback: Boolean = false,
+    )
+
     private val defaultPrompt = """
         根据小说章节内容判断场景氛围，从本地背景音乐文件名中选择最合适的音乐。
         输出时优先匹配情绪、场景、节奏，例如紧张、战斗、安静、温柔、悲伤、悬疑、日常。
@@ -577,15 +583,15 @@ object AiBgMusic {
             )
         )
 
-        val playlist = buildPlaylistWithAi(book.name, chapterIndex, title, candidate.content, tracks)
-        if (playlist.isEmpty()) {
+        val result = buildPlaylistWithAi(book.name, chapterIndex, title, candidate.content, tracks)
+        if (result.items.isEmpty()) {
             saveChapterAnalysis(
                 ChapterAnalysis(
                     bookName = book.name,
                     chapterTitle = title,
                     chapterIndex = chapterIndex,
                     status = STATUS_WAITING,
-                    statusMessage = "AI 没有返回可用背景音乐，保持无背景音乐。",
+                    statusMessage = result.statusMessage,
                     modeKey = modeKey(),
                 )
             )
@@ -598,13 +604,13 @@ object AiBgMusic {
                 chapterTitle = title,
                 chapterIndex = chapterIndex,
                 status = STATUS_DONE,
-                statusMessage = "已完成，按整章场景分成 ${playlist.size} 个播放单元。",
-                items = playlist,
+                statusMessage = result.statusMessage,
+                items = result.items,
                 modeKey = modeKey(),
             )
         )
         if (chapterIndex == ReadBook.durChapterIndex) {
-            currentPlaylist = playlist
+            currentPlaylist = result.items
         }
     }
 
@@ -958,20 +964,43 @@ object AiBgMusic {
         chapterTitle: String,
         content: String,
         tracks: List<MusicTrack>
-    ): List<PlaylistItem> {
-        val scenes = requestAiScenes(chapterTitle, content, tracks).getOrNull()
-        if (scenes.isNullOrEmpty()) return emptyList()
+    ): PlaylistBuildResult {
+        val aiResult = requestAiScenes(chapterTitle, content, tracks)
+        val scenes = aiResult.getOrNull()
+        if (scenes.isNullOrEmpty()) {
+            val reason = aiResult.exceptionOrNull()?.localizedMessage
+                ?: "模型没有返回可解析的 scenes JSON。"
+            AppLog.putDebug("AI背景音乐：AI 场景分析失败，使用本地兜底生成播放列表。$reason")
+            val fallback = buildPlaylist(bookName, chapterIndex, chapterTitle, content, tracks)
+                .map {
+                    it.copy(
+                        reason = "AI 分析失败，已用本地规则兜底。${it.reason}",
+                        statusMessage = "本地规则兜底"
+                    )
+                }
+            return PlaylistBuildResult(
+                items = fallback,
+                statusMessage = if (fallback.isEmpty()) {
+                    "AI 场景分析失败，且本地规则也无法生成播放列表：$reason"
+                } else {
+                    "AI 场景分析失败，已用本地规则按整章文本生成 ${fallback.size} 个播放单元。原因：$reason"
+                },
+                usedFallback = true,
+            )
+        }
+
         val usedTracks = arrayListOf<MusicTrack>()
-        return scenes.mapIndexed { index, scene ->
+        val playlist = scenes.mapIndexed { index, scene ->
             val start = scene.startText.takeIf { it.isNotBlank() }
                 ?.let { content.indexOf(it).takeIf { pos -> pos >= 0 } }
                 ?: ((content.length * index) / scenes.size)
             val end = scene.endText.takeIf { it.isNotBlank() }
-                ?.let { content.indexOf(it).takeIf { pos -> pos >= 0 }?.plus(it.length) }
+                ?.let { content.indexOf(it, start.coerceAtLeast(0)).takeIf { pos -> pos >= 0 }?.plus(it.length) }
                 ?: ((content.length * (index + 1)) / scenes.size)
             val musicGroup = if (frequency == FREQUENCY_SCENE) index / scenesPerMusic else index
             val track = usedTracks.getOrNull(musicGroup) ?: chooseAiTrack(tracks, scene, musicGroup)
                 .also { usedTracks.add(it) }
+            val safeEnd = if (end > start) end else ((content.length * (index + 1)) / scenes.size)
             PlaylistItem(
                 bookName = bookName,
                 chapterTitle = chapterTitle,
@@ -979,17 +1008,21 @@ object AiBgMusic {
                 sceneIndex = index + 1,
                 unitType = frequencyLabel(frequency),
                 start = start.coerceAtLeast(0),
-                end = end.coerceAtLeast(start),
+                end = safeEnd.coerceAtLeast(start),
                 musicName = track.name,
                 musicUri = track.uri,
                 reason = scene.reason.ifBlank { "AI 根据场景氛围「${scene.mood}」选择 ${track.name}" },
-                mood = scene.mood.ifBlank { detectMood(safeSubstring(content, start, end)) },
-                sourceText = safeSubstring(content, start, end).take(220),
+                mood = scene.mood.ifBlank { detectMood(safeSubstring(content, start, safeEnd)) },
+                sourceText = safeSubstring(content, start, safeEnd).take(220),
                 status = STATUS_DONE,
                 statusMessage = "AI 已匹配",
                 modeKey = modeKey(),
             )
         }
+        return PlaylistBuildResult(
+            items = playlist,
+            statusMessage = "AI 已完成，按整章场景分成 ${playlist.size} 个播放单元。",
+        )
     }
 
     private fun requestAiScenes(
@@ -997,7 +1030,8 @@ object AiBgMusic {
         content: String,
         tracks: List<MusicTrack>
     ): Result<List<AiScene>> = runCatching {
-        if (modelUrl.isBlank() || modelName.isBlank()) return@runCatching emptyList()
+        require(modelUrl.isNotBlank()) { "请先填写模型地址" }
+        require(modelName.isNotBlank()) { "请先填写模型名" }
         val trackNames = tracks.joinToString("\n") { "- ${it.name}" }
         val modeText = when (frequency) {
             FREQUENCY_BOOK -> "整本书一种基调音乐，当前章节只输出 1 个整体场景。"
@@ -1016,12 +1050,13 @@ object AiBgMusic {
             章节正文：
             ${content.take(12000)}
 
-            任务：把章节切成适合背景音乐切换的片段，并从音乐文件名中选择最贴合的一首。
+            任务：阅读整章正文，判断这一章有几个剧情场景；每个场景都要从“本地背景音乐文件名”中选择一首最贴合的音乐。
             要求：
             1. 只输出 JSON，不要 Markdown，不要解释。
             2. JSON 可以是数组，或 {"scenes":[...]}。
-            3. musicName 必须从上面的文件名中原样选择。
-            4. startText/endText 用正文中真实出现的短句，找不到可留空。
+            3. musicName 必须从上面的文件名中原样复制，不能自己编音乐名。
+            4. startText/endText 用正文中真实出现的短句，作为这个场景的边界；找不到可留空。
+            5. 至少输出 1 个场景；如果剧情明显变化，请输出多个场景。
 
             每项格式：
             {"startText":"场景开头短句","endText":"场景结尾短句","mood":"氛围标签","reason":"简短理由","musicName":"音乐文件名"}
@@ -1034,7 +1069,7 @@ object AiBgMusic {
                     mapOf("role" to "user", "content" to userPrompt)
                 ),
                 "temperature" to 0.2,
-                "max_tokens" to 1800
+                "max_tokens" to 3000
             )
         ).toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = Request.Builder()
@@ -1045,10 +1080,18 @@ object AiBgMusic {
             .post(body)
             .build()
         okHttpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@runCatching emptyList()
             val responseText = response.body.string()
-            parseAiScenes(extractChatContent(responseText))
+            if (!response.isSuccessful) {
+                throw IllegalStateException(
+                    "模型请求失败 HTTP ${response.code}，${responseText.take(500)}"
+                )
+            }
+            val scenes = parseAiScenes(extractChatContent(responseText))
                 .filter { it.musicName.isNotBlank() || it.mood.isNotBlank() }
+            if (scenes.isEmpty()) {
+                throw IllegalStateException("模型返回内容无法解析为场景 JSON：${responseText.take(500)}")
+            }
+            scenes
         }
     }
 
@@ -1104,11 +1147,22 @@ object AiBgMusic {
             runCatching {
                 val obj = item.asJsonObject
                 AiScene(
-                    startText = obj.stringValue("startText", "start", "begin", "开头", "起始文本"),
-                    endText = obj.stringValue("endText", "end", "结尾", "结束文本"),
-                    mood = obj.stringValue("mood", "emotion", "氛围", "情绪"),
-                    reason = obj.stringValue("reason", "why", "理由"),
-                    musicName = obj.stringValue("musicName", "music", "track", "bgm", "音乐")
+                    startText = obj.stringValue("startText", "start_text", "start", "begin", "开头", "起始文本", "场景开头"),
+                    endText = obj.stringValue("endText", "end_text", "end", "结尾", "结束文本", "场景结尾"),
+                    mood = obj.stringValue("mood", "emotion", "atmosphere", "氛围", "情绪", "场景氛围"),
+                    reason = obj.stringValue("reason", "why", "理由", "选择理由"),
+                    musicName = obj.stringValue(
+                        "musicName",
+                        "music_name",
+                        "musicFile",
+                        "music_file",
+                        "music",
+                        "track",
+                        "bgm",
+                        "backgroundMusic",
+                        "背景音乐",
+                        "音乐"
+                    )
                 )
             }.getOrNull()
         }
