@@ -134,6 +134,19 @@ object AiBgMusic {
         val usedFallback: Boolean = false,
     )
 
+    private data class AiSceneRequestConfig(
+        val compact: Boolean,
+        val candidateLimit: Int,
+        val chapterCharLimit: Int,
+        val maxTokens: Int,
+    )
+
+    private data class AiChatContent(
+        val content: String,
+        val finishReason: String = "",
+        val usedReasoningContent: Boolean = false,
+    )
+
     private val defaultPrompt = """
         根据小说章节内容判断场景氛围，从本地背景音乐文件名中选择最合适的音乐。
         输出时优先匹配情绪、场景、节奏，例如紧张、战斗、安静、温柔、悲伤、悬疑、日常。
@@ -1349,45 +1362,108 @@ object AiBgMusic {
     ): Result<List<AiScene>> = runCatching {
         require(modelUrl.isNotBlank()) { "请先填写模型地址" }
         require(modelName.isNotBlank()) { "请先填写模型名" }
-        val promptTracks = promptCandidateTracks(chapterTitle, content, tracks)
+
+        val normalLimit = promptMusicCandidateLimit.coerceIn(50, 500)
+        val attempts = listOf(
+            AiSceneRequestConfig(
+                compact = false,
+                candidateLimit = normalLimit,
+                chapterCharLimit = 8000,
+                maxTokens = 6000,
+            ),
+            AiSceneRequestConfig(
+                compact = true,
+                candidateLimit = minOf(normalLimit, 80),
+                chapterCharLimit = 4500,
+                maxTokens = 6000,
+            )
+        )
+        var lastFailure = "模型没有返回可解析的 scenes JSON。"
+        attempts.forEachIndexed { attemptIndex, config ->
+            val responseText = executeAiSceneRequest(chapterTitle, content, tracks, config)
+            val chatContent = extractChatContent(responseText)
+            val scenes = parseAiScenes(chatContent.content)
+                .filter { it.musicName.isNotBlank() || it.mood.isNotBlank() }
+            if (scenes.isNotEmpty()) {
+                return@runCatching scenes
+            }
+
+            lastFailure = aiSceneFailureMessage(chatContent, responseText, attemptIndex < attempts.lastIndex)
+        }
+        throw IllegalStateException(lastFailure)
+    }
+
+    private fun executeAiSceneRequest(
+        chapterTitle: String,
+        content: String,
+        tracks: List<MusicTrack>,
+        config: AiSceneRequestConfig,
+    ): String {
+        val promptTracks = promptCandidateTracks(chapterTitle, content, tracks, config.candidateLimit)
         val trackNames = promptTracks.joinToString("\n") { "- ${it.name}" }
         val modeText = when (frequency) {
             FREQUENCY_BOOK -> "整本书一种基调音乐，当前章节只输出 1 个整体场景。"
             FREQUENCY_CHAPTER -> "每章一种背景音乐，当前章节只输出 1 个整体场景。"
             else -> "按剧情场景切分；当前设置为每 $scenesPerMusic 个场景共用一种音乐。"
         }
-        val userPrompt = """
-            ${prompts}
+        val userRules = prompts.trim().take(if (config.compact) 700 else 1800)
+        val outputLimit = when (frequency) {
+            FREQUENCY_BOOK, FREQUENCY_CHAPTER -> 1
+            else -> if (config.compact) 8 else 12
+        }
+        val userPrompt = if (config.compact) {
+            """
+                只输出 JSON 对象，不要 Markdown，不要解释，不要分析过程。
+                JSON 格式：{"scenes":[{"startText":"","endText":"","mood":"","reason":"","musicName":""}]}
+                scenes 数量：1 到 $outputLimit 个。
+                musicName 必须完全复制候选文件名之一。
+                startText/endText 尽量使用正文真实短句；不确定可留空。
 
-            播放模式：$modeText
-            章节标题：$chapterTitle
+                用户规则摘要：
+                $userRules
 
-            本地背景音乐文件名候选（共 ${tracks.size} 首，已按章节内容筛选 ${promptTracks.size} 首）：
-            $trackNames
+                播放模式：$modeText
+                章节标题：$chapterTitle
+                候选音乐（从完整音乐库 ${tracks.size} 首中筛选 ${promptTracks.size} 首）：
+                $trackNames
 
-            章节正文：
-            ${content.take(8000)}
+                正文：
+                ${content.take(config.chapterCharLimit)}
+            """.trimIndent()
+        } else {
+            """
+                $userRules
 
-            任务：阅读整章正文，判断这一章有几个剧情场景；每个场景都要从“本地背景音乐文件名”中选择一首最贴合的音乐。
-            要求：
-            1. 只输出 JSON，不要 Markdown，不要解释。
-            2. JSON 可以是数组，或 {"scenes":[...]}。
-            3. musicName 必须从上面的文件名中原样复制，不能自己编音乐名。
-            4. startText/endText 用正文中真实出现的短句，作为这个场景的边界；找不到可留空。
-            5. 至少输出 1 个场景；如果剧情明显变化，请输出多个场景。
+                播放模式：$modeText
+                章节标题：$chapterTitle
 
-            每项格式：
-            {"startText":"场景开头短句","endText":"场景结尾短句","mood":"氛围标签","reason":"简短理由","musicName":"音乐文件名"}
-        """.trimIndent()
+                本地背景音乐文件名候选（共 ${tracks.size} 首，已按章节内容筛选 ${promptTracks.size} 首）：
+                $trackNames
+
+                章节正文：
+                ${content.take(config.chapterCharLimit)}
+
+                任务：阅读整章正文，判断这一章有几个剧情场景；每个场景都要从“本地背景音乐文件名”中选择一首最贴合的音乐。
+                要求：
+                1. 只输出 JSON，不要 Markdown，不要解释，不要分析过程。
+                2. JSON 必须是 {"scenes":[...]}。
+                3. musicName 必须从上面的文件名中原样复制，不能自己编音乐名。
+                4. startText/endText 用正文中真实出现的短句，作为这个场景的边界；找不到可留空。
+                5. 至少输出 1 个场景，最多输出 $outputLimit 个场景。
+
+                每项格式：
+                {"startText":"场景开头短句","endText":"场景结尾短句","mood":"氛围标签","reason":"简短理由","musicName":"音乐文件名"}
+            """.trimIndent()
+        }
         val body = GSON.toJson(
             mapOf(
                 "model" to modelName.trim(),
                 "messages" to listOf(
-                    mapOf("role" to "system", "content" to "你是小说有声书背景音乐场景分析器，必须输出可解析 JSON。"),
+                    mapOf("role" to "system", "content" to "你只返回可解析 JSON。不要输出思考过程、解释、Markdown 或额外文本。"),
                     mapOf("role" to "user", "content" to userPrompt)
                 ),
-                "temperature" to 0.2,
-                "max_tokens" to 3000
+                "temperature" to if (config.compact) 0 else 0.2,
+                "max_tokens" to config.maxTokens
             )
         ).toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = Request.Builder()
@@ -1410,12 +1486,7 @@ object AiBgMusic {
                     "模型请求失败 HTTP ${response.code}，${responseText.take(500)}"
                 )
             }
-            val scenes = parseAiScenes(extractChatContent(responseText))
-                .filter { it.musicName.isNotBlank() || it.mood.isNotBlank() }
-            if (scenes.isEmpty()) {
-                throw IllegalStateException("模型返回内容无法解析为场景 JSON：${responseText.take(500)}")
-            }
-            scenes
+            return responseText
         }
     }
 
@@ -1423,8 +1494,9 @@ object AiBgMusic {
         chapterTitle: String,
         content: String,
         tracks: List<MusicTrack>,
+        limitOverride: Int? = null,
     ): List<MusicTrack> {
-        val limit = promptMusicCandidateLimit.coerceIn(50, 500)
+        val limit = (limitOverride ?: promptMusicCandidateLimit).coerceIn(30, 500)
         if (tracks.size <= limit) return tracks
 
         val chapterText = listOf(
@@ -1531,12 +1603,47 @@ object AiBgMusic {
         return ""
     }
 
-    private fun extractChatContent(responseText: String): String {
+    private fun aiSceneFailureMessage(
+        chatContent: AiChatContent,
+        responseText: String,
+        willRetry: Boolean,
+    ): String {
+        val reason = when {
+            chatContent.finishReason.equals("length", ignoreCase = true) ->
+                "模型输出被截断（finish_reason=length），正式 JSON 没有生成完整"
+            chatContent.content.isBlank() ->
+                "模型 message.content 为空"
+            chatContent.usedReasoningContent ->
+                "模型把内容放进 reasoning_content，但里面没有可解析的场景 JSON"
+            else ->
+                "模型返回内容无法解析为场景 JSON"
+        }
+        val preview = chatContent.content.ifBlank { responseText }
+            .replace(Regex("\\s+"), " ")
+            .take(260)
+        val retryText = if (willRetry) "，正在自动使用紧凑请求重试" else ""
+        return "$reason$retryText。响应预览：$preview"
+    }
+
+    private fun extractChatContent(responseText: String): AiChatContent {
         return runCatching {
-            JsonParser.parseString(responseText)
+            val choice = JsonParser.parseString(responseText)
                 .asJsonObject["choices"].asJsonArray[0]
-                .asJsonObject["message"].asJsonObject["content"].asString
-        }.getOrDefault(responseText)
+                .asJsonObject
+            val finishReason = choice.stringValue("finish_reason")
+            val message = choice["message"]?.asJsonObject
+            val content = message?.stringValue("content").orEmpty()
+            val reasoningContent = message?.stringValue("reasoning_content").orEmpty()
+            if (content.isNotBlank()) {
+                AiChatContent(content = content, finishReason = finishReason)
+            } else {
+                AiChatContent(
+                    content = reasoningContent,
+                    finishReason = finishReason,
+                    usedReasoningContent = reasoningContent.isNotBlank(),
+                )
+            }
+        }.getOrDefault(AiChatContent(content = responseText))
     }
 
 
