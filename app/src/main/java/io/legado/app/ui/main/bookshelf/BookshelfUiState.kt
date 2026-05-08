@@ -35,6 +35,7 @@ data class BookshelfUiState(
     override val isLoading: Boolean = false,
     val groups: ImmutableList<BookGroup> = persistentListOf(),
     val allGroups: ImmutableList<BookGroup> = persistentListOf(),
+    val groupBooks: ImmutableMap<Long, ImmutableList<BookShelfItem>> = persistentMapOf(),
     val groupPreviews: ImmutableMap<Long, ImmutableList<BookShelfItem>> = persistentMapOf(),
     val groupBookCounts: ImmutableMap<Long, Int> = persistentMapOf(),
     val currentGroupBookCount: Int = 0,

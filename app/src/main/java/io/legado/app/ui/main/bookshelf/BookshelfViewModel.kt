@@ -321,21 +321,33 @@ class BookshelfViewModel(
         )
     }
 
-    private val dataStateFlow = combine(
+    private val bookshelfGroupDataFlow = combine(
         booksFlow,
         groupsFlow,
         allGroupsFlow,
-        groupPreviewsFlow,
-        internalStateFlow
-    ) { books, groups, allGroups, previews, internal ->
-        BookshelfDataState(books, groups, allGroups, previews, internal)
+        groupedBooksFlow,
+        groupPreviewsFlow
+    ) { books, groups, allGroups, groupedBooks, previews ->
+        BookshelfGroupData(books, groups, allGroups, groupedBooks, previews)
     }
 
-    private data class BookshelfDataState(
+    private val dataStateFlow = combine(
+        bookshelfGroupDataFlow,
+        internalStateFlow
+    ) { groupData, internal ->
+        BookshelfDataState(groupData, internal)
+    }
+
+    private data class BookshelfGroupData(
         val books: List<BookShelfItem>,
         val groups: List<BookGroup>,
         val allGroups: List<BookGroup>,
-        val previews: GroupPreviewState,
+        val groupedBooks: GroupedBooksState,
+        val previews: GroupPreviewState
+    )
+
+    private data class BookshelfDataState(
+        val groupData: BookshelfGroupData,
         val internal: InternalState
     )
 
@@ -343,12 +355,20 @@ class BookshelfViewModel(
         dataStateFlow,
         interactionStateFlow
     ) { data, interaction ->
-        val books = data.books
-        val groups = data.groups
-        val allGroups = data.allGroups
-        val previews = data.previews
+        val books = data.groupData.books
+        val groups = data.groupData.groups
+        val allGroups = data.groupData.allGroups
+        val groupedBooks = data.groupData.groupedBooks
+        val previews = data.groupData.previews
         val internal = data.internal
         val filteredBooks = filterBooks(books, internal.searchKey, internal.isSearchMode)
+        val groupBooks = if (internal.isSearchMode && internal.searchKey.isNotBlank()) {
+            groupedBooks.booksByGroup.mapValues { (_, books) ->
+                filterBooks(books, internal.searchKey, isSearchMode = true).toImmutableList()
+            }.toImmutableMap()
+        } else {
+            groupedBooks.booksByGroup
+        }
         val selectedGroupIndex = groups.indexOfFirst { it.groupId == internal.groupId }
             .coerceAtLeast(0)
         val currentGroupName = allGroups.firstOrNull { it.groupId == internal.groupId }?.groupName
@@ -368,6 +388,7 @@ class BookshelfViewModel(
             selectedIds = selectedIds.toImmutableSet(),
             groups = groups.toImmutableList(),
             allGroups = allGroups.toImmutableList(),
+            groupBooks = groupBooks,
             groupPreviews = previews.previews,
             groupBookCounts = previews.counts,
             currentGroupBookCount = books.size,
