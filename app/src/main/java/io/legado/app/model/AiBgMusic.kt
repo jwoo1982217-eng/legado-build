@@ -616,6 +616,18 @@ object AiBgMusic {
         }
     }
 
+
+    private fun safeSubstring(text: String, start: Int, end: Int): String {
+        if (text.isEmpty()) return ""
+        val safeStart = start.coerceIn(0, text.length)
+        val safeEnd = end.coerceIn(0, text.length)
+        return if (safeEnd > safeStart) {
+            text.substring(safeStart, safeEnd)
+        } else {
+            ""
+        }
+    }
+
     fun listMusicFiles(): List<MusicTrack> {
         val dir = musicDir.trim()
         if (dir.isBlank()) return emptyList()
@@ -885,8 +897,8 @@ object AiBgMusic {
                 musicName = track.name,
                 musicUri = track.uri,
                 reason = scene.reason.ifBlank { "AI 根据场景氛围「${scene.mood}」选择 ${track.name}" },
-                mood = scene.mood.ifBlank { detectMood(content.substring(start.coerceAtLeast(0), end.coerceAtMost(content.length))) },
-                sourceText = content.substring(start.coerceAtLeast(0), end.coerceAtMost(content.length)).take(220),
+                mood = scene.mood.ifBlank { detectMood(safeSubstring(content, start, end)) },
+                sourceText = safeSubstring(content, start, end).take(220),
                 status = STATUS_DONE,
                 statusMessage = "AI 已匹配",
                 modeKey = modeKey(),
