@@ -542,11 +542,16 @@ object AiBgMusic {
             )
             return
         }
+        val chapterTotal = appDb.bookChapterDao.getChapterCount(book.bookUrl)
         val endExclusive = (startChapterIndex + chapterCount)
-            .coerceAtMost(appDb.bookChapterDao.getChapterCount(book.bookUrl))
-        val indices = startChapterIndex until endExclusive
+            .coerceAtMost(chapterTotal)
+        val indices = if (endExclusive > startChapterIndex) {
+            startChapterIndex until endExclusive
+        } else {
+            startChapterIndex..startChapterIndex
+        }
 
-        if (endExclusive > startChapterIndex) {
+        if (true) {
             saveChapterAnalysis(
                 ChapterAnalysis(
                     bookName = book.name,
@@ -692,9 +697,29 @@ object AiBgMusic {
         )
     }
 
+    private fun emptyAnalysisDebug(title: String, bookName: String?): String {
+        val trackCount = runCatching { listMusicFiles().size }.getOrElse { -1 }
+        val dir = musicDir.trim().ifBlank { "未设置" }
+        val url = modelUrl.trim().ifBlank { "未设置" }
+        val model = modelName.trim().ifBlank { "未设置" }
+        return listOf(
+            "$title 暂无记录，但已进入诊断。",
+            "bookName=${bookName.orEmpty().ifBlank { "未知" }}",
+            "enabled=$enabled",
+            "musicDir=$dir",
+            "musicFileCount=$trackCount",
+            "frequency=$frequency",
+            "preloadChapters=$preloadChapters",
+            "preloadWholeBook=$preloadWholeBook",
+            "modelUrl=$url",
+            "modelName=$model",
+            "提示：如果 enabled=false，请先打开智能背景音乐总开关并保存；如果 musicFileCount=0，请重新选择背景音乐目录。"
+        ).joinToString("\n")
+    }
+
     fun playlistText(bookName: String? = null): String {
         val analyses = allAnalyses(bookName)
-        if (analyses.isEmpty()) return "暂无播放列表。请先打开智能背景音乐并开始朗读。"
+        if (analyses.isEmpty()) return emptyAnalysisDebug("背景音乐播放列表", bookName)
         return analyses.joinToString("\n\n") { analysis ->
             when (analysis.status) {
                 STATUS_ANALYZING -> "${analysis.chapterTitle.ifBlank { "第 ${analysis.chapterIndex + 1} 章" }}\n${analysis.statusMessage}"
@@ -713,7 +738,7 @@ object AiBgMusic {
 
     fun playlistDetailText(bookName: String? = null): String {
         val analyses = allAnalyses(bookName)
-        if (analyses.isEmpty()) return "暂无 AI 分析详情。"
+        if (analyses.isEmpty()) return emptyAnalysisDebug("AI 分析详情", bookName)
         return analyses.joinToString("\n\n") { analysis ->
             if (analysis.items.isEmpty()) {
                 "${analysis.chapterTitle.orEmpty().ifBlank { "第 ${analysis.chapterIndex + 1} 章" }}\n${analysis.statusMessage.orEmpty()}"
