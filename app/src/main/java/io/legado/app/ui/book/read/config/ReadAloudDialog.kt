@@ -143,6 +143,11 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
         }
 
+        btnAudiobookGenerate.setOnClickListener {
+            callBack?.generateAudiobookCache()
+            dismissAllowingStateLoss()
+        }
+
         ivTimer.setOnClickListener {
             AppConfig.ttsTimer = seekTimer.value.toInt()
             toastOnUi("保存设定时间成功！")
@@ -281,6 +286,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         fun showMenuBar()
         fun openChapterList()
         fun onClickReadAloud()
+        fun generateAudiobookCache()
         fun finish()
     }
 }

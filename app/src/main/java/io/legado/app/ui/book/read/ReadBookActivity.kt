@@ -260,6 +260,9 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var menu: Menu? = null
     private var backupJob: Job? = null
     private var tts: TTS? = null
+    private val audiobookCacheGenerator by lazy {
+        AudiobookCacheGenerator(this, lifecycleScope)
+    }
     val textActionMenu: TextActionMenu by lazy {
         TextActionMenu(this, this)
     }
@@ -1927,6 +1930,10 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
+    override fun generateAudiobookCache() {
+        audiobookCacheGenerator.showGenerateDialog()
+    }
+
     override fun showHelp() {
         showHelp("readMenuHelp")
     }
@@ -2241,6 +2248,7 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        audiobookCacheGenerator.cancelLocal()
         tts?.clearTts()
         textActionMenu.dismiss()
         popupAction.dismiss()

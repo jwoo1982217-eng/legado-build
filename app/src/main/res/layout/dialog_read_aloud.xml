@@ -182,6 +182,16 @@
 
     </LinearLayout>
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_audiobook_generate"
+        style="@style/Widget.Material3Expressive.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginVertical="6dp"
+        android:text="有声书生成"
+        app:icon="@drawable/ic_download"
+        tools:ignore="HardcodedText" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
