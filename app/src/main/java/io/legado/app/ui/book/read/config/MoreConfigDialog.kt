@@ -14,6 +14,7 @@ import io.legado.app.R
 import io.legado.app.base.BaseBottomSheetDialogFragment
 import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
+import io.legado.app.help.book.SmartTextCleaner
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.config.ReadBookConfig
 import io.legado.app.model.ReadBook
@@ -24,6 +25,7 @@ import io.legado.app.utils.canvasrecorder.CanvasRecorderFactory
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.postEvent
 import io.legado.app.utils.removePref
+import io.legado.app.utils.toastOnUi
 
 class MoreConfigDialog : BaseBottomSheetDialogFragment(R.layout.dialog_more_config) {
     private val readPreferTag = "readPreferenceFragment"
@@ -133,6 +135,15 @@ class MoreConfigDialog : BaseBottomSheetDialogFragment(R.layout.dialog_more_conf
                     ReadBook.loadContent(false)
                 }
 
+                PreferKey.smartTextCleanEnable,
+                PreferKey.smartTextCleanRegexAds,
+                PreferKey.smartTextCleanSplitLongParagraph,
+                PreferKey.smartTextCleanAiAssist -> {
+                    SmartTextCleaner.clearRuntimeCache()
+                    ReadBook.clearTextChapter()
+                    ReadBook.loadContent(false)
+                }
+
                 PreferKey.paddingDisplayCutouts -> {
                     postEvent(EventBus.UP_CONFIG, arrayListOf(2))
                 }
@@ -169,6 +180,14 @@ class MoreConfigDialog : BaseBottomSheetDialogFragment(R.layout.dialog_more_conf
                             AppConfig.pageTouchSlop = it
                             postEvent(EventBus.UP_CONFIG, arrayListOf(4))
                         }
+                }
+
+                PreferKey.smartTextCleanRestoreChapter -> {
+                    SmartTextCleaner.clearRuntimeCache(ReadBook.book, ReadBook.curTextChapter?.chapter)
+                    ReadBook.clearTextChapter()
+                    ReadBook.loadContent(false)
+                    toastOnUi(R.string.smart_text_clean_restore_done)
+                    return true
                 }
             }
             return super.onPreferenceTreeClick(preference)

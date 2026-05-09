@@ -63,6 +63,11 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
     // -- lyc 版本特性 --
     var adaptSpecialStyle = appCtx.getPrefBoolean(PreferKey.adaptSpecialStyle, true)
     var useUnderline = appCtx.getPrefBoolean(PreferKey.useUnderline, false)
+    var smartTextCleanEnable = appCtx.getPrefBoolean(PreferKey.smartTextCleanEnable, false)
+    var smartTextCleanRegexAds = appCtx.getPrefBoolean(PreferKey.smartTextCleanRegexAds, true)
+    var smartTextCleanSplitLongParagraph =
+        appCtx.getPrefBoolean(PreferKey.smartTextCleanSplitLongParagraph, true)
+    var smartTextCleanAiAssist = appCtx.getPrefBoolean(PreferKey.smartTextCleanAiAssist, false)
 
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
@@ -73,6 +78,18 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
 
             PreferKey.useUnderline -> useUnderline =
                 appCtx.getPrefBoolean(PreferKey.useUnderline, false)
+
+            PreferKey.smartTextCleanEnable -> smartTextCleanEnable =
+                appCtx.getPrefBoolean(PreferKey.smartTextCleanEnable, false)
+
+            PreferKey.smartTextCleanRegexAds -> smartTextCleanRegexAds =
+                appCtx.getPrefBoolean(PreferKey.smartTextCleanRegexAds, true)
+
+            PreferKey.smartTextCleanSplitLongParagraph -> smartTextCleanSplitLongParagraph =
+                appCtx.getPrefBoolean(PreferKey.smartTextCleanSplitLongParagraph, true)
+
+            PreferKey.smartTextCleanAiAssist -> smartTextCleanAiAssist =
+                appCtx.getPrefBoolean(PreferKey.smartTextCleanAiAssist, false)
 
             PreferKey.appTheme -> {
                 AppTheme = appCtx.getPrefString(PreferKey.appTheme, "0")

@@ -1474,4 +1474,16 @@
     <string name="bookshelf_empty_global_search">没有书籍，尝试全局搜索</string>
     <string name="global_search">全局搜索</string>
     <string name="cache_management">缓存管理</string>
+    <string name="smart_text_clean">智能正文清洗</string>
+    <string name="smart_text_clean_enable">开启智能正文清洗</string>
+    <string name="smart_text_clean_summary">保留原始章节缓存，仅在阅读显示和朗读取文时生成清洗文本。</string>
+    <string name="smart_text_clean_regex_ads">去广告</string>
+    <string name="smart_text_clean_regex_ads_summary">优先使用本地规则清理明显网站广告、APP 下载、域名和推广段落。</string>
+    <string name="smart_text_clean_split_long">长段落切分</string>
+    <string name="smart_text_clean_split_long_summary">把过长段落按标点切成更适合阅读和听书的小段。</string>
+    <string name="smart_text_clean_ai_assist">AI 辅助判断疑似广告</string>
+    <string name="smart_text_clean_ai_assist_summary">只把本地规则筛出的疑似短段交给当前 AI 模型判断；失败时自动回退本地规则。</string>
+    <string name="smart_text_clean_restore">一键还原本章</string>
+    <string name="smart_text_clean_restore_summary">清空本章清洗结果并重新加载原文缓存。</string>
+    <string name="smart_text_clean_restore_done">已还原本章原文缓存</string>
 </resources>
