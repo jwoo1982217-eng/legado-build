@@ -172,8 +172,8 @@ fun ReadAloudMiniPlayer(
             shape = RoundedCornerShape(28.dp),
             color = LegadoTheme.colorScheme.surfaceContainerHigh,
             contentColor = LegadoTheme.colorScheme.onSurface,
-            tonalElevation = 6.dp,
-            shadowElevation = 8.dp
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
         ) {
             ExpandedReadAloudMiniPlayer(
                 book = currentBook,
