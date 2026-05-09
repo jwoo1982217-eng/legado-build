@@ -122,8 +122,11 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         ivSetting.setOnClickListener {
             ReadAloudConfigDialog().show(childFragmentManager, "readAloudConfigDialog")
         }
-        btnSpeakEngine.setOnClickListener {
+        btnSpeakEngineSetting.setOnClickListener {
             SpeakEngineDialog().show(childFragmentManager, "speakEngineDialog")
+        }
+        btnAiBgmConfig.setOnClickListener {
+            showAiBgMusicPlaybackConfig()
         }
         tvPre.setOnClickListener { ReadBook.moveToPrevChapter(upContent = true, toLast = false) }
         tvNext.setOnClickListener { ReadBook.moveToNextChapter(true) }
@@ -288,7 +291,21 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     override fun upSpeakEngineSummary() {
-        binding.btnSpeakEngine.text = getString(R.string.speak_engine) + "：" + speakEngineSummary
+        binding.btnSpeakEngineSetting.contentDescription =
+            getString(R.string.speak_engine) + "：" + speakEngineSummary
+    }
+
+    private fun showAiBgMusicPlaybackConfig() {
+        val items = listOf("设置", "频率", "播放列表", "AI 分析", "重新分析")
+        context?.selector("背景音乐播放配置", items) { _, index ->
+            when (index) {
+                0 -> callBack?.openAiBgMusicSettings()
+                1 -> callBack?.showAiBgMusicFrequency()
+                2 -> callBack?.showAiBgMusicPlaylist()
+                3 -> callBack?.showAiBgMusicAnalysis()
+                4 -> callBack?.reanalyzeAiBgMusic()
+            }
+        }
     }
 
     private fun upTtsSpeechRate() {
@@ -312,6 +329,11 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         fun openChapterList()
         fun onClickReadAloud()
         fun generateAudiobookCache()
+        fun openAiBgMusicSettings()
+        fun showAiBgMusicFrequency()
+        fun showAiBgMusicPlaylist()
+        fun showAiBgMusicAnalysis()
+        fun reanalyzeAiBgMusic()
         fun finish()
     }
 }

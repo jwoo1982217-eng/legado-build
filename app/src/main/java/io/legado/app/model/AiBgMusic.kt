@@ -157,6 +157,8 @@ object AiBgMusic {
     private var mediaPlayer: MediaPlayer? = null
     private var currentMusicUri: String? = null
     private var currentPlaylist: List<PlaylistItem> = emptyList()
+    @Volatile
+    private var manualPaused = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var analyzeJob: Job? = null
     private val analyzingChapterKeys = ConcurrentHashMap.newKeySet<String>()
@@ -536,7 +538,9 @@ object AiBgMusic {
         if (play) {
             ensureAnalysis(book, chapterIndex, chapter, force = false)
             currentPlaylist = chapterPlaylist(book?.name.orEmpty(), chapterIndex)
-            playForPosition(0)
+            if (!manualPaused) {
+                playForPosition(0)
+            }
         } else {
             pause()
         }
@@ -733,7 +737,28 @@ object AiBgMusic {
 
     fun onProgress(position: Int) {
         if (!enabled) return
+        if (manualPaused) return
         playForPosition(position)
+    }
+
+    fun isPlaying(): Boolean = mediaPlayer?.isPlaying == true
+
+    fun toggleManualPlayback(book: Book?, chapterIndex: Int, chapter: TextChapter?, position: Int): Boolean {
+        if (!enabled) return false
+        if (mediaPlayer?.isPlaying == true) {
+            manualPaused = true
+            pause()
+            return false
+        }
+        manualPaused = false
+        ensureAnalysis(book, chapterIndex, chapter, force = false)
+        currentPlaylist = chapterPlaylist(book?.name.orEmpty(), chapterIndex)
+        if (currentPlaylist.isEmpty()) {
+            postEvent(EventBus.AI_BGM_PLAY_STATE, false)
+            return false
+        }
+        playForPosition(position)
+        return true
     }
 
 
@@ -1000,6 +1025,7 @@ object AiBgMusic {
                 setOnPreparedListener {
                     updateVolume()
                     it.start()
+                    postEvent(EventBus.AI_BGM_PLAY_STATE, true)
                 }
                 prepareAsync()
             }
@@ -1008,6 +1034,7 @@ object AiBgMusic {
 
     private fun pause() {
         runCatching { mediaPlayer?.pause() }
+        postEvent(EventBus.AI_BGM_PLAY_STATE, false)
     }
 
     fun stop() {
@@ -1015,8 +1042,10 @@ object AiBgMusic {
             mediaPlayer?.stop()
             mediaPlayer?.release()
         }
+        manualPaused = false
         mediaPlayer = null
         currentMusicUri = null
+        postEvent(EventBus.AI_BGM_PLAY_STATE, false)
     }
 
     private fun invalidateRuntimePlaylist(stopMusic: Boolean = true) {

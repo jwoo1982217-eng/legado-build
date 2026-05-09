@@ -1329,6 +1329,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private fun initAiBgMusicView() {
         val button = binding.aiBgmFloatButton
         button.visible(AiBgMusic.enabled)
+        updateAiBgMusicFloatButtonState()
         button.post {
             val savedX = getPrefInt("ai_bgm_float_x", Int.MIN_VALUE)
             val savedY = getPrefInt("ai_bgm_float_y", Int.MIN_VALUE)
@@ -1383,7 +1384,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         putPrefInt("ai_bgm_float_y", view.y.toInt())
                     } else {
                         view.performClick()
-                        showAiBgMusicMenu(view)
+                        toggleAiBgMusicPlayback()
                     }
                     true
                 }
@@ -1396,6 +1397,33 @@ class ReadBookActivity : BaseReadBookActivity(),
                 else -> false
             }
         }
+    }
+
+    private fun toggleAiBgMusicPlayback() {
+        if (!AiBgMusic.enabled) {
+            toastOnUi("请先在朗读设置里开启背景音乐")
+            return
+        }
+        val playing = AiBgMusic.toggleManualPlayback(
+            ReadBook.book,
+            ReadBook.durChapterIndex,
+            ReadBook.curTextChapter,
+            ReadBook.durChapterPos
+        )
+        updateAiBgMusicFloatButtonState(playing)
+        if (playing) {
+            toastOnUi("背景音乐播放")
+        } else {
+            toastOnUi("背景音乐暂停或正在等待播放列表")
+        }
+    }
+
+    private fun updateAiBgMusicFloatButtonState(playing: Boolean = AiBgMusic.isPlaying()) {
+        binding.aiBgmFloatButton.setIconResource(
+            if (playing) R.drawable.ic_pause_filled else R.drawable.ic_play_filled
+        )
+        binding.aiBgmFloatButton.contentDescription =
+            if (playing) "暂停背景音乐" else "播放背景音乐"
     }
 
     private fun showAiBgMusicMenu(anchor: View) {
@@ -1661,6 +1689,26 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun selectAiBgMusicDir() {
         aiBgMusicDirLauncher.launch(null)
+    }
+
+    override fun openAiBgMusicSettings() {
+        showDialogFragment<AiBgMusicSettingsDialog>()
+    }
+
+    override fun showAiBgMusicFrequency() {
+        showAiBgMusicFrequencyDialog()
+    }
+
+    override fun showAiBgMusicPlaylist() {
+        showAiBgMusicPlaylistDialog()
+    }
+
+    override fun showAiBgMusicAnalysis() {
+        showAiBgMusicAnalysisDialog()
+    }
+
+    override fun reanalyzeAiBgMusic() {
+        confirmAiBgMusicReanalyze()
     }
 
     /**
@@ -2337,6 +2385,10 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
         observeEvent<Boolean>(EventBus.AI_BGM_CHANGED) {
             aiBgmFloatButton.visible(it)
+            updateAiBgMusicFloatButtonState()
+        }
+        observeEvent<Boolean>(EventBus.AI_BGM_PLAY_STATE) {
+            updateAiBgMusicFloatButtonState(it)
         }
         observeEvent<Boolean>(EventBus.REFRESH_BOOK_CONTENT) {
             ReadBook.book?.let {

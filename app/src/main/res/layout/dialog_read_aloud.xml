@@ -24,28 +24,64 @@
             android:minHeight="0dp"
             android:layout_gravity="center_horizontal" />
 
-        <TextView
-            android:id="@+id/bottom_sheet_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/aloud_config"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp">
+
+            <TextView
+                android:id="@+id/bottom_sheet_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="@string/aloud_config"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_speak_engine_setting"
+                style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="end|center_vertical"
+                android:contentDescription="@string/speak_engine"
+                android:tooltipText="@string/speak_engine"
+                app:icon="@drawable/ic_settings"
+                tools:ignore="UnusedAttribute" />
+
+        </FrameLayout>
 
     </LinearLayout>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_speak_engine"
-        style="@style/Widget.Material3Expressive.Button.TonalButton"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="wrap_content"
         android:layout_marginVertical="6dp"
-        android:ellipsize="end"
-        android:gravity="center_vertical|start"
-        android:maxLines="1"
-        android:text="@string/speak_engine"
-        app:icon="@drawable/ic_volume_up"
-        app:iconGravity="textStart" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <io.legado.app.lib.theme.view.ThemeSwitch
+            android:id="@+id/cb_ai_bgm"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:contentDescription="背景音乐开启"
+            android:text="背景音乐开启"
+            tools:ignore="HardcodedText,TouchTargetSizeCheck" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_ai_bgm_config"
+            style="@style/Widget.Material3Expressive.Button.TonalButton"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="背景音乐播放配置"
+            app:icon="@drawable/ic_settings"
+            tools:ignore="HardcodedText" />
+
+    </LinearLayout>
 
     <com.google.android.material.button.MaterialButtonGroup
         android:layout_width="match_parent"
@@ -175,20 +211,9 @@
         android:orientation="horizontal">
 
         <io.legado.app.lib.theme.view.ThemeSwitch
-            android:id="@+id/cb_ai_bgm"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:contentDescription="智能背景音乐"
-            android:text="智能背景音乐"
-            tools:ignore="TouchTargetSizeCheck" />
-
-        <io.legado.app.lib.theme.view.ThemeSwitch
             android:id="@+id/cb_audio_preload"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
             android:contentDescription="后台预缓存"
             android:text="后台预缓存"
             tools:ignore="TouchTargetSizeCheck" />
