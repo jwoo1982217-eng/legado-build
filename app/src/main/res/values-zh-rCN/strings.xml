@@ -1483,6 +1483,10 @@
     <string name="smart_text_clean_split_long_summary">把过长段落按标点切成更适合阅读和听书的小段。</string>
     <string name="smart_text_clean_ai_assist">AI 辅助判断疑似广告</string>
     <string name="smart_text_clean_ai_assist_summary">只把本地规则筛出的疑似短段交给当前 AI 模型判断；失败时自动回退本地规则。</string>
+    <string name="smart_text_typeset">智能正文排版（不删改原文）</string>
+    <string name="smart_text_typeset_summary">仅调整换行和段落；清洗前后原文字符校验不一致时自动回退。</string>
+    <string name="smart_text_typeset_ai">AI 辅助排版判断</string>
+    <string name="smart_text_typeset_ai_summary">AI 只返回断段位置，APK 本地执行并校验，不允许改字、删字或补字。</string>
     <string name="smart_text_clean_restore">一键还原本章</string>
     <string name="smart_text_clean_restore_summary">清空本章清洗结果并重新加载原文缓存。</string>
     <string name="smart_text_clean_restore_done">已还原本章原文缓存</string>

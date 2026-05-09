@@ -106,6 +106,8 @@ object PreferKey {
     const val smartTextCleanRegexAds = "smartTextCleanRegexAds"
     const val smartTextCleanSplitLongParagraph = "smartTextCleanSplitLongParagraph"
     const val smartTextCleanAiAssist = "smartTextCleanAiAssist"
+    const val smartTextTypesetEnable = "smartTextTypesetEnable"
+    const val smartTextTypesetAiAssist = "smartTextTypesetAiAssist"
     const val smartTextCleanRestoreChapter = "smartTextCleanRestoreChapter"
     const val autoClearExpired = "autoClearExpired"
     const val autoChangeSource = "autoChangeSource"

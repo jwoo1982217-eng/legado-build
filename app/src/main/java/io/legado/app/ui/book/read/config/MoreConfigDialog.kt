@@ -138,7 +138,9 @@ class MoreConfigDialog : BaseBottomSheetDialogFragment(R.layout.dialog_more_conf
                 PreferKey.smartTextCleanEnable,
                 PreferKey.smartTextCleanRegexAds,
                 PreferKey.smartTextCleanSplitLongParagraph,
-                PreferKey.smartTextCleanAiAssist -> {
+                PreferKey.smartTextCleanAiAssist,
+                PreferKey.smartTextTypesetEnable,
+                PreferKey.smartTextTypesetAiAssist -> {
                     SmartTextCleaner.clearRuntimeCache()
                     ReadBook.clearTextChapter()
                     ReadBook.loadContent(false)

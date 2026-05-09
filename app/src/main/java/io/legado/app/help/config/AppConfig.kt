@@ -68,6 +68,9 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
     var smartTextCleanSplitLongParagraph =
         appCtx.getPrefBoolean(PreferKey.smartTextCleanSplitLongParagraph, true)
     var smartTextCleanAiAssist = appCtx.getPrefBoolean(PreferKey.smartTextCleanAiAssist, false)
+    var smartTextTypesetEnable = appCtx.getPrefBoolean(PreferKey.smartTextTypesetEnable, false)
+    var smartTextTypesetAiAssist =
+        appCtx.getPrefBoolean(PreferKey.smartTextTypesetAiAssist, false)
 
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
@@ -90,6 +93,12 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
 
             PreferKey.smartTextCleanAiAssist -> smartTextCleanAiAssist =
                 appCtx.getPrefBoolean(PreferKey.smartTextCleanAiAssist, false)
+
+            PreferKey.smartTextTypesetEnable -> smartTextTypesetEnable =
+                appCtx.getPrefBoolean(PreferKey.smartTextTypesetEnable, false)
+
+            PreferKey.smartTextTypesetAiAssist -> smartTextTypesetAiAssist =
+                appCtx.getPrefBoolean(PreferKey.smartTextTypesetAiAssist, false)
 
             PreferKey.appTheme -> {
                 AppTheme = appCtx.getPrefString(PreferKey.appTheme, "0")

@@ -143,6 +143,22 @@
             android:title="@string/smart_text_clean_ai_assist"
             app:isBottomBackground="true" />
 
+        <io.legado.app.lib.prefs.SwitchPreference
+            android:defaultValue="false"
+            android:dependency="smartTextCleanEnable"
+            android:key="smartTextTypesetEnable"
+            android:summary="@string/smart_text_typeset_summary"
+            android:title="@string/smart_text_typeset"
+            app:isBottomBackground="true" />
+
+        <io.legado.app.lib.prefs.SwitchPreference
+            android:defaultValue="false"
+            android:dependency="smartTextTypesetEnable"
+            android:key="smartTextTypesetAiAssist"
+            android:summary="@string/smart_text_typeset_ai_summary"
+            android:title="@string/smart_text_typeset_ai"
+            app:isBottomBackground="true" />
+
         <io.legado.app.lib.prefs.Preference
             android:dependency="smartTextCleanEnable"
             android:key="smartTextCleanRestoreChapter"

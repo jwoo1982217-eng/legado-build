@@ -23,12 +23,18 @@ object SmartTextCleaner {
     private const val MAX_CACHE_SIZE = 48
     private const val LONG_PARAGRAPH_TARGET = 280
     private const val LONG_PARAGRAPH_HARD_LIMIT = 520
+    private const val AI_TYPESET_PARAGRAPH_LIMIT = 6
 
     private val cleanCache = object : LinkedHashMap<String, String>(MAX_CACHE_SIZE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
             return size > MAX_CACHE_SIZE
         }
     }
+
+    private data class BreakHint(
+        val id: Int,
+        val after: List<String>
+    )
 
     private val domainRegex = Regex(
         """(?i)(https?://|www\.|[a-z0-9][a-z0-9.-]+\.(com|net|org|cn|cc|top|xyz|vip|info|io|me)(/|\b))"""
@@ -46,11 +52,16 @@ object SmartTextCleaner {
 
     private val splitPunctuation = setOf('。', '！', '？', '!', '?', '；', ';', '…')
     private val closingPunctuation = setOf('”', '’', '」', '』', '）', ')', '】', ']')
+    private val hardSentenceEnd = splitPunctuation + closingPunctuation + setOf('：', ':')
+    private val quoteStarts = setOf('“', '「', '『', '"')
+    private val dialogueBreakRegex = Regex("""([。！？!?；;…][”’」』）)\]】]?)([“「『"])""")
     private val enabled get() = appCtx.getPrefBoolean(PreferKey.smartTextCleanEnable, false)
     private val regexAds get() = appCtx.getPrefBoolean(PreferKey.smartTextCleanRegexAds, true)
     private val splitLongParagraph
         get() = appCtx.getPrefBoolean(PreferKey.smartTextCleanSplitLongParagraph, true)
     private val aiAssist get() = appCtx.getPrefBoolean(PreferKey.smartTextCleanAiAssist, false)
+    private val typesetEnable get() = appCtx.getPrefBoolean(PreferKey.smartTextTypesetEnable, false)
+    private val typesetAiAssist get() = appCtx.getPrefBoolean(PreferKey.smartTextTypesetAiAssist, false)
 
     fun clean(book: Book, chapter: BookChapter, content: String): String {
         if (!enabled || content.isBlank()) return content
@@ -94,12 +105,21 @@ object SmartTextCleaner {
             emptySet()
         }
 
-        return keptLines
+        val filteredText = keptLines
             .filterIndexed { index, _ -> index !in aiRemoveIndexes }
-            .flatMap { line ->
-                if (splitLongParagraph) splitLongParagraph(line) else listOf(line)
-            }
             .joinToString("\n")
+
+        val cleanedText = if (typesetEnable) {
+            typesetText(filteredText)
+        } else {
+            filteredText.lines()
+                .flatMap { line ->
+                    if (splitLongParagraph) splitLongParagraph(line) else listOf(line)
+                }
+                .joinToString("\n")
+        }
+
+        return cleanedText
             .replace(Regex("\n{3,}"), "\n\n")
             .trim()
     }
@@ -139,6 +159,213 @@ object SmartTextCleaner {
             result.add(builder.toString().trim())
         }
         return result.filter { it.isNotBlank() }.ifEmpty { listOf(line) }
+    }
+
+    private fun typesetText(text: String): String {
+        val localTypeset = localTypeset(text)
+        val safeLocal = if (samePayload(text, localTypeset)) localTypeset else text
+        if (!typesetAiAssist) return safeLocal
+        if (AiBgMusic.modelUrl.isBlank() || AiBgMusic.modelName.isBlank()) return safeLocal
+        val aiTypeset = runCatching {
+            applyAiTypesetHints(safeLocal)
+        }.onFailure {
+            AppLog.put("智能正文排版 AI 辅助失败，已继续使用本地排版\n${it.localizedMessage}", it)
+        }.getOrDefault(safeLocal)
+        return if (samePayload(safeLocal, aiTypeset)) aiTypeset else safeLocal
+    }
+
+    private fun localTypeset(text: String): String {
+        val merged = mergeBrokenLines(text.lines())
+        return merged.flatMap { line ->
+            val withDialogueBreaks = insertDialogueBreaks(line)
+            withDialogueBreaks.lines().flatMap { item ->
+                if (splitLongParagraph) splitLongParagraph(item) else listOf(item)
+            }
+        }.joinToString("\n")
+    }
+
+    private fun mergeBrokenLines(lines: List<String>): List<String> {
+        val result = arrayListOf<String>()
+        val builder = StringBuilder()
+        lines.map { it.trim() }.filter { it.isNotBlank() }.forEach { line ->
+            if (builder.isEmpty()) {
+                builder.append(line)
+            } else if (shouldMergeLine(builder.toString(), line)) {
+                builder.append(line)
+            } else {
+                result.add(builder.toString())
+                builder.clear()
+                builder.append(line)
+            }
+        }
+        if (builder.isNotEmpty()) {
+            result.add(builder.toString())
+        }
+        return result
+    }
+
+    private fun shouldMergeLine(previous: String, next: String): Boolean {
+        val prev = previous.trimEnd()
+        val cur = next.trimStart()
+        if (prev.isBlank() || cur.isBlank()) return false
+        if (looksLikeChapterTitle(cur)) return false
+        if (prev.lastOrNull()?.let { it in hardSentenceEnd } == true) return false
+        if (cur.firstOrNull()?.let { it in quoteStarts } == true) return false
+        return prev.length <= 180 || cur.length <= 180
+    }
+
+    private fun looksLikeChapterTitle(text: String): Boolean {
+        if (text.length > 40) return false
+        return Regex("""^(第[一二三四五六七八九十百千万零〇两\d]+[章节卷回部篇集].*|[楔序终尾]章.*)$""")
+            .containsMatchIn(text)
+    }
+
+    private fun insertDialogueBreaks(line: String): String {
+        return dialogueBreakRegex.replace(line) { result ->
+            "${result.groupValues[1]}\n${result.groupValues[2]}"
+        }
+    }
+
+    private fun applyAiTypesetHints(text: String): String {
+        val lines = text.lines()
+        val blocks = lines.mapIndexedNotNull { index, line ->
+            val clean = line.trim()
+            if (clean.length >= 360) index to clean.take(1800) else null
+        }.take(AI_TYPESET_PARAGRAPH_LIMIT)
+        if (blocks.isEmpty()) return text
+        val hints = requestAiBreakHints(blocks)
+        if (hints.isEmpty()) return text
+        val byId = hints.associateBy { it.id }
+        val rebuilt = lines.mapIndexed { index, line ->
+            val hint = byId[index] ?: return@mapIndexed line
+            insertBreaksAfterAnchors(line, hint.after)
+        }.joinToString("\n")
+        return if (samePayload(text, rebuilt)) rebuilt else text
+    }
+
+    private fun requestAiBreakHints(blocks: List<Pair<Int, String>>): List<BreakHint> {
+        val userPrompt = """
+            你是小说正文排版助手。下面是若干过长段落。
+            任务：只判断哪里适合换段，不允许改写、删除或补充任何正文。
+            只输出 JSON，不要 Markdown，不要解释。
+            JSON 格式：{"breaks":[{"id":段落id,"after":["原文中真实出现的短句"]}]}
+
+            规则：
+            - after 必须完全复制原文中真实出现的短句，建议 6 到 30 个字。
+            - APK 会在 after 短句后插入换行。
+            - 不要输出新正文，不要输出改写后的段落。
+            - 拿不准就少给或不给。
+
+            段落：
+            ${GSON.toJson(blocks.map { mapOf("id" to it.first, "text" to it.second) })}
+        """.trimIndent()
+        val body = GSON.toJson(
+            mapOf(
+                "model" to AiBgMusic.modelName.trim(),
+                "messages" to listOf(
+                    mapOf("role" to "system", "content" to "你只返回可解析 JSON。"),
+                    mapOf("role" to "user", "content" to userPrompt)
+                ),
+                "temperature" to 0,
+                "max_tokens" to 900
+            )
+        ).toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url(normalizeChatCompletionsUrl(AiBgMusic.modelUrl))
+            .apply {
+                if (AiBgMusic.modelKey.isNotBlank()) {
+                    header("Authorization", normalizeBearerToken(AiBgMusic.modelKey))
+                }
+            }
+            .post(body)
+            .build()
+        val client = okHttpClient.newBuilder()
+            .callTimeout(45, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .build()
+        val responseText = client.newCall(request).execute().use { response ->
+            val responseBody = response.body.string()
+            if (!response.isSuccessful) {
+                throw IllegalStateException("AI 请求失败 HTTP ${response.code}，${responseBody.take(300)}")
+            }
+            responseBody
+        }
+        val ids = blocks.map { it.first }.toSet()
+        return parseBreakHints(extractChatContent(responseText))
+            .filter { it.id in ids && it.after.isNotEmpty() }
+    }
+
+    private fun insertBreaksAfterAnchors(line: String, anchors: List<String>): String {
+        var result = line
+        anchors.asSequence()
+            .map { it.trim() }
+            .filter { it.length in 4..40 }
+            .distinct()
+            .forEach { anchor ->
+                val index = result.indexOf(anchor)
+                if (index >= 0) {
+                    val insertAt = index + anchor.length
+                    if (insertAt < result.length && result.getOrNull(insertAt) != '\n') {
+                        result = result.substring(0, insertAt) + "\n" + result.substring(insertAt)
+                    }
+                }
+            }
+        return result
+    }
+
+    private fun samePayload(left: String, right: String): Boolean {
+        return stripLayoutWhitespace(left) == stripLayoutWhitespace(right)
+    }
+
+    private fun stripLayoutWhitespace(text: String): String {
+        return buildString(text.length) {
+            text.forEach { ch ->
+                if (ch != '\n' && ch != '\r' && ch != '\t' && ch != ' ' && ch != '　') {
+                    append(ch)
+                }
+            }
+        }
+    }
+
+    private fun parseBreakHints(contentText: String): List<BreakHint> {
+        jsonCandidates(contentText).forEach { candidate ->
+            runCatching {
+                return jsonElementToBreakHints(JsonParser.parseString(candidate))
+            }
+        }
+        return emptyList()
+    }
+
+    private fun jsonElementToBreakHints(element: JsonElement): List<BreakHint> {
+        val array = when {
+            element.isJsonArray -> element.asJsonArray
+            element.isJsonObject -> {
+                val obj = element.asJsonObject
+                when {
+                    obj["breaks"]?.isJsonArray == true -> obj["breaks"].asJsonArray
+                    obj["items"]?.isJsonArray == true -> obj["items"].asJsonArray
+                    obj["data"]?.isJsonArray == true -> obj["data"].asJsonArray
+                    else -> JsonArray()
+                }
+            }
+            else -> JsonArray()
+        }
+        return array.mapNotNull { item ->
+            runCatching {
+                val obj = item.asJsonObject
+                val id = obj["id"]?.asIntOrNull() ?: return@runCatching null
+                val after = listOfNotNull(
+                    obj["after"],
+                    obj["breakAfter"],
+                    obj["anchors"]
+                ).firstOrNull()
+                    ?.asStringList()
+                    .orEmpty()
+                BreakHint(id, after)
+            }.getOrNull()
+        }
     }
 
     private fun aiAdLineIndexes(lines: List<String>): Set<Int> {
@@ -242,6 +469,20 @@ object SmartTextCleaner {
                 else -> null
             }
         }.getOrNull()
+    }
+
+    private fun JsonElement.asStringList(): List<String> {
+        return runCatching {
+            when {
+                isJsonArray -> asJsonArray.mapNotNull { item ->
+                    if (item.isJsonPrimitive) item.asString.orEmpty() else null
+                }
+                isJsonPrimitive -> listOf(asString.orEmpty())
+                else -> emptyList()
+            }
+        }.getOrDefault(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
     }
 
     private fun jsonCandidates(raw: String): List<String> {
