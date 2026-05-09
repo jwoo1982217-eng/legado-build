@@ -34,7 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +49,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.Observer
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import io.legado.app.R
@@ -61,7 +65,7 @@ import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.theme.LegadoTheme
 import io.legado.app.ui.widget.components.cover.buildCoverImageRequest
 import io.legado.app.ui.widget.components.text.AppText
-import io.legado.app.utils.eventBus.FlowEventBus
+import io.legado.app.utils.eventObservable
 import io.legado.app.utils.startActivityForBook
 import org.koin.compose.koinInject
 
@@ -70,6 +74,7 @@ fun ReadAloudMiniPlayer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var status by remember {
         mutableIntStateOf(
             when {
@@ -83,20 +88,41 @@ fun ReadAloudMiniPlayer(
     var chapterTitle by remember { mutableStateOf(ReadBook.curTextChapter?.title.orEmpty()) }
     var expanded by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        FlowEventBus.with<Int>(EventBus.ALOUD_STATE).collect { state ->
-            status = state
-            book = ReadBook.book
-            chapterTitle = ReadBook.curTextChapter?.title.orEmpty()
-            if (state == Status.STOP) {
-                expanded = false
-            }
+    fun syncState(eventState: Int? = null) {
+        status = when {
+            eventState == Status.STOP -> Status.STOP
+            !BaseReadAloudService.isRun -> Status.STOP
+            BaseReadAloudService.pause -> Status.PAUSE
+            else -> Status.PLAY
+        }
+        book = ReadBook.book
+        chapterTitle = ReadBook.curTextChapter?.title.orEmpty()
+        if (status == Status.STOP) {
+            expanded = false
         }
     }
-    LaunchedEffect(Unit) {
-        FlowEventBus.with<Int>(EventBus.TTS_PROGRESS).collect {
-            book = ReadBook.book
-            chapterTitle = ReadBook.curTextChapter?.title.orEmpty()
+
+    DisposableEffect(lifecycleOwner) {
+        syncState()
+        val stateObserver = Observer<Int> { state ->
+            syncState(state)
+        }
+        val progressObserver = Observer<Int> {
+            syncState()
+        }
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                syncState()
+            }
+        }
+        eventObservable<Int>(EventBus.ALOUD_STATE).observe(lifecycleOwner, stateObserver)
+        eventObservable<Int>(EventBus.TTS_PROGRESS).observe(lifecycleOwner, progressObserver)
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+            if (status == Status.STOP) {
+                expanded = false
+            }
         }
     }
 
