@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PauseCircleOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -96,8 +97,10 @@ fun ReadAloudMiniPlayer(
     var book by remember { mutableStateOf(ReadBook.book) }
     var chapterTitle by remember { mutableStateOf(ReadBook.curTextChapter?.title.orEmpty()) }
     var expanded by remember { mutableStateOf(false) }
+    var tucked by rememberSaveable { mutableStateOf(false) }
     var verticalOffsetPx by rememberSaveable { mutableFloatStateOf(0f) }
     val maxUpOffsetPx = with(density) { 420.dp.toPx() }
+    val tuckOffsetPx = with(density) { 40.dp.toPx() }
 
     fun syncState(eventState: Int? = null) {
         status = when {
@@ -110,6 +113,7 @@ fun ReadAloudMiniPlayer(
         chapterTitle = ReadBook.curTextChapter?.title.orEmpty()
         if (status == Status.STOP) {
             expanded = false
+            tucked = false
         }
     }
 
@@ -142,9 +146,18 @@ fun ReadAloudMiniPlayer(
 
     val isPlaying = status == Status.PLAY
     val playerModifier = modifier
-        .offset { IntOffset(0, verticalOffsetPx.roundToInt()) }
-        .pointerInput(maxUpOffsetPx) {
-            detectDragGestures { change, dragAmount ->
+        .offset {
+            IntOffset(
+                x = if (tucked) tuckOffsetPx.roundToInt() else 0,
+                y = verticalOffsetPx.roundToInt()
+            )
+        }
+        .pointerInput(maxUpOffsetPx, tucked) {
+            detectDragGestures(
+                onDragStart = {
+                    if (tucked) tucked = false
+                }
+            ) { change, dragAmount ->
                 change.consume()
                 verticalOffsetPx = (verticalOffsetPx + dragAmount.y)
                     .coerceIn(-maxUpOffsetPx, 0f)
@@ -166,7 +179,6 @@ fun ReadAloudMiniPlayer(
                 book = currentBook,
                 chapterTitle = chapterTitle,
                 isPlaying = isPlaying,
-                onCollapse = { expanded = false },
                 onTogglePlay = {
                     if (isPlaying) {
                         ReadAloud.pause(context)
@@ -177,10 +189,16 @@ fun ReadAloudMiniPlayer(
                 onStop = {
                     ReadAloud.stop(context)
                     expanded = false
+                    tucked = false
+                },
+                onTuck = {
+                    expanded = false
+                    tucked = true
                 },
                 onOpenReader = {
                     context.startActivityForBook(currentBook)
                     expanded = false
+                    tucked = false
                 }
             )
         } else {
@@ -188,7 +206,10 @@ fun ReadAloudMiniPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .clickable { expanded = true }
+                    .clickable {
+                        tucked = false
+                        expanded = true
+                    }
                     .padding(6.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -207,41 +228,46 @@ private fun ExpandedReadAloudMiniPlayer(
     book: Book,
     chapterTitle: String,
     isPlaying: Boolean,
-    onCollapse: () -> Unit,
     onTogglePlay: () -> Unit,
     onStop: () -> Unit,
+    onTuck: () -> Unit,
     onOpenReader: () -> Unit
 ) {
     Row(
         modifier = Modifier
-            .clickable(onClick = onCollapse)
             .padding(start = 10.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        RotatingCoverDisc(
-            book = book,
-            isPlaying = isPlaying,
-            modifier = Modifier.size(52.dp)
-        )
-        Column(
-            modifier = Modifier.width(142.dp)
+        Row(
+            modifier = Modifier.clickable(onClick = onOpenReader),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            AppText(
-                text = book.name,
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            RotatingCoverDisc(
+                book = book,
+                isPlaying = isPlaying,
+                modifier = Modifier.size(52.dp)
             )
-            AppText(
-                text = chapterTitle.ifBlank { stringResource(R.string.read_aloud) },
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column(
+                modifier = Modifier.width(112.dp)
+            ) {
+                AppText(
+                    text = book.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                AppText(
+                    text = chapterTitle.ifBlank { stringResource(R.string.read_aloud) },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
-        Spacer(modifier = Modifier.width(2.dp))
+        Spacer(modifier = Modifier.width(1.dp))
         IconButton(onClick = onTogglePlay) {
             Icon(
                 imageVector = if (isPlaying) Icons.Default.PauseCircleOutline else Icons.Default.PlayArrow,
@@ -254,10 +280,10 @@ private fun ExpandedReadAloudMiniPlayer(
                 contentDescription = stringResource(R.string.stop)
             )
         }
-        IconButton(onClick = onOpenReader) {
+        IconButton(onClick = onTuck) {
             Icon(
-                imageVector = Icons.Default.Book,
-                contentDescription = "返回听书页"
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "收回侧边"
             )
         }
     }
