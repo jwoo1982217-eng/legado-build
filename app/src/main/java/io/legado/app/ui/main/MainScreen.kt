@@ -64,8 +64,11 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.legado.app.R
+import io.legado.app.ui.book.read.AudiobookCacheGenerator
 import io.legado.app.ui.main.bookshelf.BookshelfScreen
+import io.legado.app.ui.main.bookshelf.BookShelfItem
 import io.legado.app.ui.main.bookshelf.BookshelfViewModel
+import io.legado.app.ui.main.bookshelf.toLightBook
 import io.legado.app.ui.main.explore.ExploreScreen
 import io.legado.app.ui.main.my.MyScreen
 import io.legado.app.ui.main.my.PrefClickEvent
@@ -77,6 +80,9 @@ import io.legado.app.ui.widget.components.AppScaffold
 import io.legado.app.ui.widget.components.FloatingBottomBar
 import io.legado.app.ui.widget.components.FloatingBottomBarItem
 import io.legado.app.ui.widget.components.GlassDefaults
+import io.legado.app.ui.widget.components.alert.AppAlertDialog
+import io.legado.app.ui.widget.components.button.PrimaryButton
+import io.legado.app.ui.widget.components.button.SecondaryButton
 import io.legado.app.ui.widget.components.icon.AppIcon
 import io.legado.app.ui.widget.components.icon.AppIcons
 import io.legado.app.ui.widget.components.menuItem.RoundDropdownMenu
@@ -115,6 +121,10 @@ fun MainScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val mainUiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val audiobookCacheGenerator = remember(context, coroutineScope) {
+        AudiobookCacheGenerator(context, coroutineScope)
+    }
+    var bookshelfActionBook by remember { mutableStateOf<BookShelfItem?>(null) }
 
     LaunchedEffect(viewModel, context) {
         viewModel.effects.collect { effect ->
@@ -393,7 +403,7 @@ fun MainScreen(
                                 context.startActivityForBook(book)
                             },
                             onBookLongClick = { book ->
-                                onNavigateToBookInfo(book.name, book.author, book.bookUrl)
+                                bookshelfActionBook = book
                             },
                             onNavigateToSearch = { query -> onNavigateToSearch(query) },
                             onNavigateToRemoteImport = onNavigateToRemoteImport,
@@ -441,9 +451,61 @@ fun MainScreen(
                         )
                         .zIndex(8f)
                 )
+                BookshelfBookActionDialog(
+                    book = bookshelfActionBook,
+                    onDismissRequest = { bookshelfActionBook = null },
+                    onOpenInfo = { book ->
+                        bookshelfActionBook = null
+                        onNavigateToBookInfo(book.name, book.author, book.bookUrl)
+                    },
+                    onGenerateAudiobook = { book ->
+                        bookshelfActionBook = null
+                        audiobookCacheGenerator.showGenerateDialog(
+                            book = book.toLightBook(),
+                            startIndex = book.durChapterIndex
+                        )
+                    }
+                )
             }
         }
     }
+}
+
+@Composable
+private fun BookshelfBookActionDialog(
+    book: BookShelfItem?,
+    onDismissRequest: () -> Unit,
+    onOpenInfo: (BookShelfItem) -> Unit,
+    onGenerateAudiobook: (BookShelfItem) -> Unit
+) {
+    val currentBook = book ?: return
+    AppAlertDialog(
+        show = true,
+        onDismissRequest = onDismissRequest,
+        title = currentBook.name,
+        text = "选择书架操作",
+        content = {
+            if (!currentBook.isAudio && !currentBook.isImage) {
+                PrimaryButton(
+                    text = "有声书生成",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onGenerateAudiobook(currentBook) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            SecondaryButton(
+                text = "书籍详情",
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onOpenInfo(currentBook) }
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            SecondaryButton(
+                text = "取消",
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onDismissRequest
+            )
+        }
+    )
 }
 
 @Composable

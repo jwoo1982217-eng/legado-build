@@ -1,8 +1,8 @@
 package io.legado.app.ui.book.read
 
+import android.content.Context
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import androidx.lifecycle.LifecycleCoroutineScope
 import io.legado.app.R
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
@@ -18,6 +18,7 @@ import io.legado.app.model.webBook.WebBook
 import io.legado.app.utils.dpToPx
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,8 +27,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class AudiobookCacheGenerator(
-    private val activity: ReadBookActivity,
-    private val lifecycleScope: LifecycleCoroutineScope
+    private val context: Context,
+    private val coroutineScope: CoroutineScope
 ) {
 
     private var job: Job? = null
@@ -35,30 +36,53 @@ class AudiobookCacheGenerator(
 
     fun showGenerateDialog() {
         val book = ReadBook.book ?: run {
-            activity.toastOnUi("当前没有打开的书籍")
+            context.toastOnUi("当前没有打开的书籍")
             return
         }
+        val currentText = ReadBook.curTextChapter
+            ?.takeIf { it.chapter.index == ReadBook.durChapterIndex }
+            ?.getContent()
+        showGenerateDialog(
+            book = book,
+            startIndex = ReadBook.durChapterIndex,
+            currentSource = ReadBook.bookSource,
+            currentChapterText = currentText
+        )
+    }
+
+    fun showGenerateDialog(
+        book: Book,
+        startIndex: Int = book.durChapterIndex,
+        currentSource: BookSource? = null,
+        currentChapterText: String? = null
+    ) {
         val chapterCount = appDb.bookChapterDao.getChapterCount(book.bookUrl)
         if (chapterCount <= 0) {
-            activity.toastOnUi("当前书籍目录为空，无法生成有声书缓存")
+            context.toastOnUi("当前书籍目录为空，无法生成有声书缓存")
             return
         }
-        val startIndex = ReadBook.durChapterIndex.coerceIn(0, chapterCount - 1)
+        val safeStartIndex = startIndex.coerceIn(0, chapterCount - 1)
         val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
-        val submitCount = (chapterCount - startIndex).coerceAtMost(preloadCount + 1)
-        val startTitle = appDb.bookChapterDao.getChapter(book.bookUrl, startIndex)?.title.orEmpty()
+        val submitCount = (chapterCount - safeStartIndex).coerceAtMost(preloadCount + 1)
+        val startTitle = appDb.bookChapterDao.getChapter(book.bookUrl, safeStartIndex)?.title.orEmpty()
 
-        AlertDialog.Builder(activity)
+        AlertDialog.Builder(context)
             .setTitle("生成有声书缓存")
             .setMessage(
                 "书名：${book.name}\n" +
-                        "起始章节：第 ${startIndex + 1} 章 ${startTitle}\n" +
+                        "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
                         "生成范围：当前章 + 后面 $preloadCount 章\n" +
                         "本次会提交 $submitCount 章给 TTS 缓存工厂。\n\n" +
                         "完成状态以 TTS 端实际缓存队列返回为准。"
             )
             .setPositiveButton("开始生成") { _, _ ->
-                start(book, startIndex, preloadCount)
+                start(
+                    book = book,
+                    startIndex = safeStartIndex,
+                    preloadCount = preloadCount,
+                    currentSource = currentSource,
+                    currentChapterText = currentChapterText
+                )
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -71,17 +95,19 @@ class AudiobookCacheGenerator(
     private fun start(
         book: Book,
         startIndex: Int,
-        preloadCount: Int
+        preloadCount: Int,
+        currentSource: BookSource?,
+        currentChapterText: String?
     ) {
         cancelLocal()
         taskId = null
 
-        val statusView = TextView(activity).apply {
+        val statusView = TextView(context).apply {
             setPadding(24.dpToPx(), 16.dpToPx(), 24.dpToPx(), 8.dpToPx())
             textSize = 16f
             text = "正在准备整章正文和缓存窗口..."
         }
-        val statusDialog = AlertDialog.Builder(activity)
+        val statusDialog = AlertDialog.Builder(context)
             .setTitle("正在生成有声书音频")
             .setView(statusView)
             .setNegativeButton("取消任务", null)
@@ -92,11 +118,11 @@ class AudiobookCacheGenerator(
                 val runningTaskId = taskId
                 cancelLocal()
                 if (!runningTaskId.isNullOrBlank()) {
-                    lifecycleScope.launch(IO) {
-                        TtsServerDbBridge.cancelAudiobookGeneration(activity, runningTaskId)
+                    coroutineScope.launch(IO) {
+                        TtsServerDbBridge.cancelAudiobookGeneration(context, runningTaskId)
                     }
                 }
-                activity.toastOnUi("已请求取消有声书生成任务")
+                context.toastOnUi("已请求取消有声书生成任务")
                 statusDialog.dismiss()
             }
             statusDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -105,28 +131,27 @@ class AudiobookCacheGenerator(
         }
         statusDialog.show()
 
-        job = lifecycleScope.launch {
+        job = coroutineScope.launch {
             try {
-                val currentText = ReadBook.curTextChapter
-                    ?.takeIf { it.chapter.index == startIndex }
-                    ?.getContent()
-                val currentSource = ReadBook.bookSource
                 statusView.text = "正在准备第 ${startIndex + 1} 章开始的正文..."
+                val fullBook = withContext(IO) {
+                    appDb.bookDao.getBook(book.bookUrl) ?: book
+                }
                 val chapters = collectChapters(
-                    book = book,
+                    book = fullBook,
                     currentSource = currentSource,
                     startIndex = startIndex,
                     preloadCount = preloadCount,
-                    currentChapterText = currentText
+                    currentChapterText = currentChapterText
                 )
                 statusView.text = "已准备 ${chapters.size} 章正文，正在提交 TTS 缓存工厂..."
                 val submit = withContext(IO) {
                     TtsServerDbBridge.submitAudiobookGeneration(
-                        context = activity,
-                        bookName = book.name,
-                        bookUrl = book.bookUrl,
-                        author = book.author,
-                        origin = book.origin,
+                        context = context,
+                        bookName = fullBook.name,
+                        bookUrl = fullBook.bookUrl,
+                        author = fullBook.author,
+                        origin = fullBook.origin,
                         startChapterIndex = startIndex,
                         preloadCount = preloadCount,
                         chapters = chapters
@@ -215,12 +240,12 @@ class AudiobookCacheGenerator(
             repeat(300) {
                 delay(2000)
                 val status = withContext(IO) {
-                    TtsServerDbBridge.queryAudiobookGeneration(activity, taskId).getOrThrow()
+                    TtsServerDbBridge.queryAudiobookGeneration(context, taskId).getOrThrow()
                 }
                 statusView.text = status.formatForUser()
                 if (status.isFinished) {
                     if (status.status.equals("ready", true) || status.status.equals("completed", true)) {
-                        activity.toastOnUi("有声书缓存已生成")
+                        context.toastOnUi("有声书缓存已生成")
                     }
                     return
                 }
