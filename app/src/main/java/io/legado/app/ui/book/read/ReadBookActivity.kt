@@ -97,6 +97,7 @@ import io.legado.app.ui.book.read.config.FontConfigDialog.Companion.TEXT_COLOR
 import io.legado.app.ui.book.read.config.FontSelectDialog
 import io.legado.app.ui.book.read.config.ReadAloudDialog
 import io.legado.app.ui.book.read.config.ReadStyleDialog
+import io.legado.app.ui.book.read.config.SpeakEngineDialog
 import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.A_COLOR
 import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.B_COLOR
 import io.legado.app.ui.book.read.config.TipConfigDialog.Companion.TIP_COLOR
@@ -644,6 +645,12 @@ class ReadBookActivity : BaseReadBookActivity(),
                     ReadBook.book?.let {
                         refreshContentAll(it)
                     }
+                }
+            }
+
+            R.id.menu_speak_engine -> {
+                binding.readMenu.runMenuOut {
+                    showDialogFragment(SpeakEngineDialog())
                 }
             }
 

@@ -25,6 +25,12 @@
 
     </group>
 
+    <item
+        android:id="@+id/menu_speak_engine"
+        android:icon="@drawable/ic_read_aloud"
+        android:title="@string/speak_engine"
+        app:showAsAction="always" />
+
     <group android:id="@+id/menu_group_text">
         <item
             android:id="@+id/menu_toc_regex"
