@@ -55,6 +55,7 @@ fun CoilBookCover(
     onLoadFinish: (() -> Unit)? = null,
     ignoreUseDefaultCover: Boolean = false,
     showLoadingPlaceholder: Boolean = true,
+    crossfade: Boolean = true,
 ) {
     val context = LocalContext.current
     val isNight = isSystemInDarkTheme()
@@ -124,7 +125,7 @@ fun CoilBookCover(
                         data = randomPath,
                         sourceOrigin = null,
                         loadOnlyWifi = false,
-                        crossfade = true,
+                        crossfade = crossfade,
                     ),
                     contentDescription = null,
                     imageLoader = koinInject(),
@@ -140,7 +141,7 @@ fun CoilBookCover(
                         data = finalPath,
                         sourceOrigin = sourceOrigin,
                         loadOnlyWifi = CoverConfig.loadCoverOnlyWifi,
-                        crossfade = true,
+                        crossfade = crossfade,
                     ),
                     contentDescription = null,
                     imageLoader = koinInject(),

@@ -322,13 +322,12 @@ class BookshelfViewModel(
     }
 
     private val bookshelfGroupDataFlow = combine(
-        booksFlow,
         groupsFlow,
         allGroupsFlow,
         groupedBooksFlow,
         groupPreviewsFlow
-    ) { books, groups, allGroups, groupedBooks, previews ->
-        BookshelfGroupData(books, groups, allGroups, groupedBooks, previews)
+    ) { groups, allGroups, groupedBooks, previews ->
+        BookshelfGroupData(groups, allGroups, groupedBooks, previews)
     }
 
     private val dataStateFlow = combine(
@@ -339,7 +338,6 @@ class BookshelfViewModel(
     }
 
     private data class BookshelfGroupData(
-        val books: List<BookShelfItem>,
         val groups: List<BookGroup>,
         val allGroups: List<BookGroup>,
         val groupedBooks: GroupedBooksState,
@@ -355,19 +353,23 @@ class BookshelfViewModel(
         dataStateFlow,
         interactionStateFlow
     ) { data, interaction ->
-        val books = data.groupData.books
         val groups = data.groupData.groups
         val allGroups = data.groupData.allGroups
         val groupedBooks = data.groupData.groupedBooks
         val previews = data.groupData.previews
         val internal = data.internal
-        val filteredBooks = filterBooks(books, internal.searchKey, internal.isSearchMode)
         val groupBooks = if (internal.isSearchMode && internal.searchKey.isNotBlank()) {
             groupedBooks.booksByGroup.mapValues { (_, books) ->
                 filterBooks(books, internal.searchKey, isSearchMode = true).toImmutableList()
             }.toImmutableMap()
         } else {
             groupedBooks.booksByGroup
+        }
+        val currentGroupBooks = groupedBooks.booksByGroup[internal.groupId].orEmpty()
+        val filteredBooks = if (internal.isSearchMode && internal.searchKey.isNotBlank()) {
+            groupBooks[internal.groupId].orEmpty()
+        } else {
+            currentGroupBooks
         }
         val selectedGroupIndex = groups.indexOfFirst { it.groupId == internal.groupId }
             .coerceAtLeast(0)
@@ -391,7 +393,7 @@ class BookshelfViewModel(
             groupBooks = groupBooks,
             groupPreviews = previews.previews,
             groupBookCounts = previews.counts,
-            currentGroupBookCount = books.size,
+            currentGroupBookCount = currentGroupBooks.size,
             allBooksCount = previews.allBookCount,
             selectedGroupIndex = selectedGroupIndex,
             selectedGroupId = internal.groupId,

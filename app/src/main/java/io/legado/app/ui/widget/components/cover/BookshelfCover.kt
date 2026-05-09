@@ -28,6 +28,7 @@ fun BookshelfCover(
     sourceOrigin: String? = null,
     onLoadFinish: (() -> Unit)? = null,
     showLoadingPlaceholder: Boolean = true,
+    coverCrossfade: Boolean = false,
 ) {
     Box(modifier = modifier) {
         CoilBookCover(
@@ -38,6 +39,7 @@ fun BookshelfCover(
             sourceOrigin = sourceOrigin,
             onLoadFinish = onLoadFinish,
             showLoadingPlaceholder = showLoadingPlaceholder,
+            crossfade = coverCrossfade,
         )
 
         if (!badgeText.isNullOrEmpty()) {

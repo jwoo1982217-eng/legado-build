@@ -239,7 +239,8 @@ fun BookGroupCover(
                 name = null,
                 author = null,
                 path = coverPath,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                crossfade = false
             )
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -255,7 +256,8 @@ fun BookGroupCover(
                                 name = it.name,
                                 author = it.author,
                                 path = it.getDisplayCover(),
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                crossfade = false
                             )
                         }
                     }
@@ -270,7 +272,8 @@ fun BookGroupCover(
                                 name = it.name,
                                 author = it.author,
                                 path = it.getDisplayCover(),
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                crossfade = false
                             )
                         }
                     }
@@ -287,7 +290,8 @@ fun BookGroupCover(
                                 name = it.name,
                                 author = it.author,
                                 path = it.getDisplayCover(),
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                crossfade = false
                             )
                         }
                     }
@@ -302,7 +306,8 @@ fun BookGroupCover(
                                 name = it.name,
                                 author = it.author,
                                 path = it.getDisplayCover(),
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                crossfade = false
                             )
                         }
                     }
