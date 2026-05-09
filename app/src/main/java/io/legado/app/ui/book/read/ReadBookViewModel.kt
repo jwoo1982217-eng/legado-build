@@ -25,7 +25,6 @@ import io.legado.app.help.book.simulatedTotalChapterNum
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.model.ImageProvider
-import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.localBook.LocalBook
@@ -590,13 +589,6 @@ class ReadBookViewModel(
                 it.enabled = false
                 appDb.bookSourceDao.update(it)
             }
-        }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        if (BaseReadAloudService.isRun && BaseReadAloudService.pause) {
-            ReadAloud.stop(context)
         }
     }
 

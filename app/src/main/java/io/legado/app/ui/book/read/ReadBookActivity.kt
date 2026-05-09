@@ -359,9 +359,9 @@ class ReadBookActivity : BaseReadBookActivity(),
                 restoreLastBookProcess()
                 return@addCallback
             }
-            if (BaseReadAloudService.isPlay()) {
-                ReadAloud.pause(this@ReadBookActivity)
-                toastOnUi(R.string.read_aloud_pause)
+            if (BaseReadAloudService.isRun) {
+                ReadBook.commitReadSession()
+                supportFinishAfterTransition()
                 return@addCallback
             }
             if (isAutoPage) {
