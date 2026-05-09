@@ -166,15 +166,15 @@ fun ReadAloudMiniPlayer(
         .then(if (expanded) Modifier else Modifier.size(68.dp))
         .animateContentSize()
 
-    Surface(
-        modifier = playerModifier,
-        shape = if (expanded) RoundedCornerShape(28.dp) else CircleShape,
-        color = LegadoTheme.colorScheme.surfaceContainerHigh,
-        contentColor = LegadoTheme.colorScheme.onSurface,
-        tonalElevation = 6.dp,
-        shadowElevation = 8.dp
-    ) {
-        if (expanded) {
+    if (expanded) {
+        Surface(
+            modifier = playerModifier,
+            shape = RoundedCornerShape(28.dp),
+            color = LegadoTheme.colorScheme.surfaceContainerHigh,
+            contentColor = LegadoTheme.colorScheme.onSurface,
+            tonalElevation = 6.dp,
+            shadowElevation = 8.dp
+        ) {
             ExpandedReadAloudMiniPlayer(
                 book = currentBook,
                 chapterTitle = chapterTitle,
@@ -201,24 +201,22 @@ fun ReadAloudMiniPlayer(
                     tucked = false
                 }
             )
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .clickable {
-                        tucked = false
-                        expanded = true
-                    }
-                    .padding(6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                RotatingCoverDisc(
-                    book = currentBook,
-                    isPlaying = isPlaying,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+        }
+    } else {
+        Box(
+            modifier = playerModifier
+                .clip(CircleShape)
+                .clickable {
+                    tucked = false
+                    expanded = true
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            RotatingCoverDisc(
+                book = currentBook,
+                isPlaying = isPlaying,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
