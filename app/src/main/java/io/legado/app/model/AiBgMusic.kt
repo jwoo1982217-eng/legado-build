@@ -139,6 +139,8 @@ object AiBgMusic {
         val candidateLimit: Int,
         val chapterCharLimit: Int,
         val maxTokens: Int,
+        val callTimeoutSeconds: Long,
+        val readTimeoutSeconds: Long,
     )
 
     private data class AiChatContent(
@@ -1368,19 +1370,45 @@ object AiBgMusic {
             AiSceneRequestConfig(
                 compact = false,
                 candidateLimit = normalLimit,
-                chapterCharLimit = 8000,
-                maxTokens = 6000,
+                chapterCharLimit = 4200,
+                maxTokens = 3200,
+                callTimeoutSeconds = 180,
+                readTimeoutSeconds = 180,
             ),
             AiSceneRequestConfig(
                 compact = true,
-                candidateLimit = minOf(normalLimit, 80),
-                chapterCharLimit = 4500,
-                maxTokens = 6000,
+                candidateLimit = minOf(normalLimit, 120),
+                chapterCharLimit = 3600,
+                maxTokens = 2600,
+                callTimeoutSeconds = 150,
+                readTimeoutSeconds = 150,
+            ),
+            AiSceneRequestConfig(
+                compact = true,
+                candidateLimit = minOf(normalLimit, 60),
+                chapterCharLimit = 3200,
+                maxTokens = 2200,
+                callTimeoutSeconds = 120,
+                readTimeoutSeconds = 120,
+            ),
+            AiSceneRequestConfig(
+                compact = true,
+                candidateLimit = minOf(normalLimit, 35),
+                chapterCharLimit = 2200,
+                maxTokens = 1600,
+                callTimeoutSeconds = 90,
+                readTimeoutSeconds = 90,
             )
         )
         var lastFailure = "模型没有返回可解析的 scenes JSON。"
         attempts.forEachIndexed { attemptIndex, config ->
-            val responseText = executeAiSceneRequest(chapterTitle, content, tracks, config)
+            val responseText = runCatching {
+                executeAiSceneRequest(chapterTitle, content, tracks, config)
+            }.getOrElse { e ->
+                lastFailure = aiRequestFailureMessage(e, attemptIndex < attempts.lastIndex)
+                AppLog.putDebug("AI背景音乐：${lastFailure}")
+                return@forEachIndexed
+            }
             val chatContent = extractChatContent(responseText)
             val scenes = parseAiScenes(chatContent.content)
                 .filter { it.musicName.isNotBlank() || it.mood.isNotBlank() }
@@ -1474,9 +1502,9 @@ object AiBgMusic {
             .post(body)
             .build()
         val aiClient = okHttpClient.newBuilder()
-            .callTimeout(90, TimeUnit.SECONDS)
+            .callTimeout(config.callTimeoutSeconds, TimeUnit.SECONDS)
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(90, TimeUnit.SECONDS)
+            .readTimeout(config.readTimeoutSeconds, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .build()
         aiClient.newCall(request).execute().use { response ->
@@ -1623,6 +1651,21 @@ object AiBgMusic {
             .take(260)
         val retryText = if (willRetry) "，正在自动使用紧凑请求重试" else ""
         return "$reason$retryText。响应预览：$preview"
+    }
+
+    private fun aiRequestFailureMessage(e: Throwable, willRetry: Boolean): String {
+        val raw = e.localizedMessage.orEmpty().ifBlank { e::class.java.simpleName }
+        val lower = raw.lowercase()
+        val reason = when {
+            "timeout" in lower || "timed out" in lower ->
+                "模型请求超时"
+            "canceled" in lower || "cancelled" in lower ->
+                "模型请求被取消"
+            else ->
+                "模型请求失败：$raw"
+        }
+        val retryText = if (willRetry) "，正在自动降低正文长度和音乐候选数量重试" else ""
+        return "$reason$retryText"
     }
 
     private fun extractChatContent(responseText: String): AiChatContent {
