@@ -10,6 +10,7 @@ import androidx.annotation.ColorRes
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.toColorInt
 import io.legado.app.utils.ColorUtils
+import io.legado.app.utils.safeGetInt
 import splitties.init.appCtx
 import androidx.core.content.edit
 import com.google.android.material.color.DynamicColors
@@ -143,7 +144,7 @@ private constructor(private val mContext: Context) : ThemeStoreInterface {
         @ColorInt
         fun primaryColor(context: Context = appCtx): Int {
             return if (isCustomThemeEnabled(context)) {
-                prefs(context).getInt(
+                prefs(context).safeGetInt(
                     ThemeStorePrefKeys.KEY_PRIMARY_COLOR,
                     ThemeUtils.resolveColor(
                         context,
@@ -182,7 +183,7 @@ private constructor(private val mContext: Context) : ThemeStoreInterface {
         @ColorInt
         fun primaryColorDark(context: Context): Int {
             return if (isCustomThemeEnabled(context)) {
-                prefs(context).getInt(
+                prefs(context).safeGetInt(
                     ThemeStorePrefKeys.KEY_PRIMARY_COLOR_DARK,
                     ThemeUtils.resolveColor(
                         context,
@@ -199,7 +200,7 @@ private constructor(private val mContext: Context) : ThemeStoreInterface {
         @ColorInt
         fun backgroundColor(context: Context = appCtx): Int {
             return if (isCustomThemeEnabled(context)) {
-                prefs(context).getInt(
+                prefs(context).safeGetInt(
                     ThemeStorePrefKeys.KEY_BACKGROUND_COLOR,
                     ThemeUtils.resolveColor(context, android.R.attr.colorBackground)
                 )
@@ -211,7 +212,7 @@ private constructor(private val mContext: Context) : ThemeStoreInterface {
         @CheckResult
         @ColorInt
         fun bottomBackground(context: Context = appCtx): Int {
-            return prefs(context).getInt(
+            return prefs(context).safeGetInt(
                 ThemeStorePrefKeys.KEY_BOTTOM_BACKGROUND,
                 ThemeUtils.resolveColor(context, android.R.attr.colorBackground)
             )
@@ -243,7 +244,7 @@ private constructor(private val mContext: Context) : ThemeStoreInterface {
         @SuppressLint("CommitPrefEdits")
         fun isConfigured(context: Context, version: Int): Boolean {
             val prefs = prefs(context)
-            val lastVersion = prefs.getInt(ThemeStorePrefKeys.IS_CONFIGURED_VERSION_KEY, -1)
+            val lastVersion = prefs.safeGetInt(ThemeStorePrefKeys.IS_CONFIGURED_VERSION_KEY, -1)
             if (version > lastVersion) {
                 prefs.edit { putInt(ThemeStorePrefKeys.IS_CONFIGURED_VERSION_KEY, version) }
                 return false

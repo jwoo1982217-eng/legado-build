@@ -2,6 +2,7 @@ package io.legado.app.help.config
 
 import android.content.Context.MODE_PRIVATE
 import androidx.core.content.edit
+import io.legado.app.utils.safeGetInt
 import splitties.init.appCtx
 
 object SourceConfig {
@@ -21,11 +22,11 @@ object SourceConfig {
     }
 
     fun getBookScore(origin: String, name: String, author: String): Int {
-        return sp.getInt("${origin}_${name}_${author}", 0)
+        return sp.safeGetInt("${origin}_${name}_${author}", 0)
     }
 
     fun getSourceScore(origin: String): Int {
-        return sp.getInt(origin, 0)
+        return sp.safeGetInt(origin, 0)
     }
 
 

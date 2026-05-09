@@ -8,6 +8,7 @@ import io.legado.app.utils.putBoolean
 import io.legado.app.utils.putLong
 import io.legado.app.utils.putString
 import io.legado.app.utils.remove
+import io.legado.app.utils.safeGetInt
 import splitties.init.appCtx
 
 @Suppress("ConstPropertyName")
@@ -98,7 +99,7 @@ by appCtx.getSharedPreferences("local", Context.MODE_PRIVATE) {
         versionKey: String,
         firstOpenKey: String? = null
     ): Boolean {
-        var version = getInt(versionKey, 0)
+        var version = safeGetInt(versionKey, 0)
         if (version == 0 && firstOpenKey != null) {
             if (!getBoolean(firstOpenKey, true)) {
                 version = 1

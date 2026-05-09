@@ -186,7 +186,7 @@ fun Context.putPrefBoolean(key: String, value: Boolean = false) =
     defaultSharedPreferences.edit { putBoolean(key, value) }
 
 fun Context.getPrefInt(key: String, defValue: Int = 0) =
-    defaultSharedPreferences.getInt(key, defValue)
+    defaultSharedPreferences.safeGetInt(key, defValue)
 
 fun Context.putPrefInt(key: String, value: Int) =
     defaultSharedPreferences.edit { putInt(key, value) }
@@ -195,7 +195,7 @@ fun Context.getPrefLong(key: String, defValue: Long = 0L): Long {
     return try {
         defaultSharedPreferences.getLong(key, defValue)
     } catch (e: ClassCastException) {
-        val value = defaultSharedPreferences.getInt(key, defValue.toInt()).toLong()
+        val value = defaultSharedPreferences.safeGetInt(key, defValue.toInt()).toLong()
         defaultSharedPreferences.edit { putLong(key, value) }
         value
     }

@@ -70,7 +70,29 @@ fun SharedPreferences.putBoolean(key: String, value: Boolean) {
 }
 
 fun SharedPreferences.getInt(key: String): Int {
-    return getInt(key, 0)
+    return safeGetInt(key, 0)
+}
+
+fun SharedPreferences.safeGetInt(key: String, defValue: Int = 0): Int {
+    return try {
+        getInt(key, defValue)
+    } catch (e: ClassCastException) {
+        val migratedValue = when (val value = all[key]) {
+            is String -> value.toIntOrNull()
+            is Long -> value.toInt()
+            is Float -> value.toInt()
+            is Boolean -> if (value) 1 else 0
+            else -> null
+        }
+        edit {
+            if (migratedValue != null) {
+                putInt(key, migratedValue)
+            } else {
+                remove(key)
+            }
+        }
+        migratedValue ?: defValue
+    }
 }
 
 fun SharedPreferences.putInt(key: String, value: Int) {
