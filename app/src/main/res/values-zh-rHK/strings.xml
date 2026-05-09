@@ -597,6 +597,9 @@
     <string name="enable_selection">啟用所選</string>
     <string name="disable_selection">禁用所選</string>
     <string name="export_selection">導出所選</string>
+    <string name="export_private_book_source">導出私密書源包</string>
+    <string name="export_private_book_source_tip">私密書源包會包含 Cookie、登入 token 和源變量，只適合自己遷移設備，不要公開分享。</string>
+    <string name="ai_filter_invalid_source">AI 篩選失效書源</string>
     <string name="export">導出</string>
     <string name="load_toc">加載目錄</string>
     <string name="load_info">加載詳情頁</string>

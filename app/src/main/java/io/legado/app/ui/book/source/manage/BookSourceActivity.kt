@@ -489,6 +489,8 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
                 }
             }
 
+            R.id.menu_export_private_source -> exportPrivateBookSource()
+
             R.id.menu_share_source -> viewModel.saveToFile(
                 adapter,
                 searchView.query?.toString(),
@@ -499,8 +501,53 @@ class BookSourceActivity : VMBaseActivity<ActivityBookSourceBinding, BookSourceV
             }
 
             R.id.menu_check_selected_interval -> adapter.checkSelectedInterval()
+            R.id.menu_ai_filter_invalid_source -> aiFilterInvalidSource()
         }
         return true
+    }
+
+    private fun exportPrivateBookSource() {
+        alert(titleResource = R.string.export_private_book_source) {
+            setMessage(getString(R.string.export_private_book_source_tip))
+            okButton {
+                viewModel.savePrivateToFile(
+                    adapter,
+                    searchView.query?.toString(),
+                    sortAscending,
+                    sort
+                ) { file, name ->
+                    exportDir.launch {
+                        mode = HandleFileContract.EXPORT
+                        fileData = HandleFileContract.FileData(
+                            name,
+                            file,
+                            "application/json"
+                        )
+                    }
+                }
+            }
+            cancelButton()
+        }
+    }
+
+    private fun aiFilterInvalidSource() {
+        toastOnUi("正在分析选中的书源...")
+        viewModel.aiFilterInvalidSources(adapter.selection) { message ->
+            alert(titleResource = R.string.ai_filter_invalid_source) {
+                setMessage(message)
+                okButton {
+                    val invalidCount = Regex("AI判定失效：(\\d+)").find(message)
+                        ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+                    val suspectCount = Regex("AI疑似失效：(\\d+)").find(message)
+                        ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+                    if (invalidCount > 0) {
+                        searchView.setQuery("AI判定失效", true)
+                    } else if (suspectCount > 0) {
+                        searchView.setQuery("AI疑似失效", true)
+                    }
+                }
+            }
+        }
     }
 
     @SuppressLint("InflateParams")

@@ -18,6 +18,8 @@ import io.legado.app.help.config.AppConfig
 import io.legado.app.help.http.decompressed
 import io.legado.app.help.http.newCallResponseBody
 import io.legado.app.help.http.okHttpClient
+import io.legado.app.help.source.PrivateBookSourcePackage
+import io.legado.app.help.source.PrivateBookSourcePackager
 import io.legado.app.help.source.SourceHelp
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonArray
@@ -41,6 +43,7 @@ class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
     val selectStatus = arrayListOf<Boolean>()
     val newSourceStatus = arrayListOf<Boolean>()
     val updateSourceStatus = arrayListOf<Boolean>()
+    private var privatePackage: PrivateBookSourcePackage? = null
 
     val isSelectAll: Boolean
         get() {
@@ -122,6 +125,9 @@ class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
                 }
             }
             SourceHelp.insertBookSource(*selectSource.toTypedArray())
+            privatePackage?.let {
+                PrivateBookSourcePackager.restore(it, selectSource)
+            }
             ContentProcessor.upReplaceRules()
         }.onFinally {
             finally.invoke()
@@ -130,11 +136,30 @@ class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
 
     fun importSource(text: String) {
         execute {
-            val mText = text.trim()
-            when {
+            parseImportText(text.trim())
+        }.onError {
+            errorLiveData.postValue("ImportError:${it.localizedMessage}")
+            AppLog.put("ImportError:${it.localizedMessage}", it)
+        }.onSuccess {
+            comparisonSource()
+        }
+    }
+
+    private suspend fun parseImportText(mText: String) {
+        when {
                 mText.isJsonObject() -> {
                     kotlin.runCatching {
                         val json = JsonPath.parse(mText)
+                        val type = kotlin.runCatching {
+                            json.read<String?>("$.type")
+                        }.getOrNull()
+                        if (type == PrivateBookSourcePackage.TYPE) {
+                            GSON.fromJsonObject<PrivateBookSourcePackage>(mText).getOrThrow().let { pkg ->
+                                privatePackage = pkg
+                                allSources.addAll(pkg.sources)
+                            }
+                            return
+                        }
                         json.read<List<String>>("$.sourceUrls")
                     }.onSuccess { listUrl ->
                         listUrl.forEach {
@@ -166,24 +191,12 @@ class ImportBookSourceViewModel(app: Application) : BaseViewModel(app) {
                 mText.isUri() -> {
                     val uri = Uri.parse(mText)
                     uri.inputStream(context).getOrThrow().use { inputS ->
-                        GSON.fromJsonArray<BookSource>(inputS).getOrThrow().let {
-                            val source = it.firstOrNull() ?: return@let
-                            if (source.bookSourceUrl.isEmpty()) {
-                                throw NoStackTraceException("不是书源")
-                            }
-                            allSources.addAll(it)
-                        }
+                        parseImportText(String(inputS.readBytes()))
                     }
                 }
 
                 else -> throw NoStackTraceException(context.getString(R.string.wrong_format))
             }
-        }.onError {
-            errorLiveData.postValue("ImportError:${it.localizedMessage}")
-            AppLog.put("ImportError:${it.localizedMessage}", it)
-        }.onSuccess {
-            comparisonSource()
-        }
     }
 
     private suspend fun importSourceUrl(url: String) {

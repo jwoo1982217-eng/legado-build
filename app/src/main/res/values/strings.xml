@@ -636,6 +636,9 @@
     <string name="enable_selection">Enable selected</string>
     <string name="disable_selection">Disable selected</string>
     <string name="export_selection">Export selected</string>
+    <string name="export_private_book_source">Export private source package</string>
+    <string name="export_private_book_source_tip">The private source package contains cookies, login tokens, and source variables. Use it only for your own device migration and do not share it publicly.</string>
+    <string name="ai_filter_invalid_source">AI filter invalid sources</string>
     <string name="export">Export</string>
     <string name="load_toc">Load chapters</string>
     <string name="load_info">Load book detail</string>

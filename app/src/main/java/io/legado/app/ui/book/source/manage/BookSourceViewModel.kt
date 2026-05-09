@@ -8,7 +8,9 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.toBookSource
+import io.legado.app.help.source.PrivateBookSourcePackager
 import io.legado.app.help.source.SourceHelp
+import io.legado.app.model.SourceAiAnalyzer
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.GSON
 import io.legado.app.utils.cnCompare
@@ -129,6 +131,7 @@ class BookSourceViewModel(application: Application) : BaseViewModel(application)
     private fun saveToFile(
         sources: List<BookSource>,
         name: String,
+        privatePackage: Boolean = false,
         success: (file: File, name: String) -> Unit
     ) {
         execute {
@@ -136,7 +139,11 @@ class BookSourceViewModel(application: Application) : BaseViewModel(application)
             FileUtils.delete(path)
             val file = FileUtils.createFileWithReplace(path)
             file.outputStream().buffered().use {
-                GSON.writeToOutputStream(it, sources)
+                if (privatePackage) {
+                    GSON.writeToOutputStream(it, PrivateBookSourcePackager.create(sources))
+                } else {
+                    GSON.writeToOutputStream(it, sources)
+                }
             }
             file
         }.onSuccess {
@@ -156,18 +163,7 @@ class BookSourceViewModel(application: Application) : BaseViewModel(application)
         execute {
             val selection = adapter.selection
             val selectionSize = selection.size
-            val selectedRate = selectionSize.toFloat() / adapter.itemCount.toFloat()
-            val sources = if (selectedRate == 1f) {
-                getBookSources(searchKey, sortAscending, sort)
-            } else if (selectedRate < 0.3) {
-                selection.toBookSource()
-            } else {
-                val keys = selection.map { it.bookSourceUrl }.toHashSet()
-                val bookSources = getBookSources(searchKey, sortAscending, sort)
-                bookSources.filter {
-                    keys.contains(it.bookSourceUrl)
-                }
-            }
+            val sources = selectedSourcesForExport(adapter, searchKey, sortAscending, sort)
             val name = if (selectionSize == 1) {
                 "bookSource_${selection.first().bookSourceName.normalizeFileName()}.json"
             } else {
@@ -175,7 +171,113 @@ class BookSourceViewModel(application: Application) : BaseViewModel(application)
                     java.text.SimpleDateFormat("yyyyMMddHHmm", Locale.getDefault()).format(Date())
                 "bookSource_$timestamp.json"
             }
-            saveToFile(sources, name, success)
+            saveToFile(sources, name, success = success)
+        }
+    }
+
+    fun savePrivateToFile(
+        adapter: BookSourceAdapter,
+        searchKey: String?,
+        sortAscending: Boolean,
+        sort: BookSourceSort,
+        success: (file: File, name: String) -> Unit
+    ) {
+        execute {
+            val sources = selectedSourcesForExport(adapter, searchKey, sortAscending, sort)
+            val timestamp =
+                java.text.SimpleDateFormat("yyyyMMddHHmm", Locale.getDefault()).format(Date())
+            val name = if (sources.size == 1) {
+                "privateBookSource_${sources.first().bookSourceName.normalizeFileName()}.json"
+            } else {
+                "privateBookSource_$timestamp.json"
+            }
+            saveToFile(sources, name, privatePackage = true, success = success)
+        }
+    }
+
+    fun aiFilterInvalidSources(
+        sources: List<BookSourcePart>,
+        success: (message: String) -> Unit
+    ) {
+        execute {
+            val bookSources = sources.toBookSource()
+            if (bookSources.isEmpty()) {
+                return@execute "没有选中的书源"
+            }
+            val candidates = bookSources.filter { source ->
+                source.getInvalidGroupNames().isNotBlank()
+                        || source.bookSourceComment.orEmpty().contains("// Error:")
+                        || source.respondTime >= 180000L
+            }
+            if (candidates.isEmpty()) {
+                bookSources.forEach { source ->
+                    source.removeGroup("AI判定失效")
+                    source.removeGroup("AI疑似失效")
+                }
+                appDb.bookSourceDao.update(*bookSources.toTypedArray())
+                return@execute "没有发现需要 AI 判断的失效候选书源"
+            }
+            var usedFallback = false
+            val decisions = kotlin.runCatching {
+                candidates.chunked(40).flatMap { chunk ->
+                    SourceAiAnalyzer.analyzeInvalidSources(chunk).getOrThrow()
+                }
+            }.getOrElse { error ->
+                usedFallback = true
+                SourceAiAnalyzer.localDecisions(candidates, "AI分析失败：${error.localizedMessage}")
+            }.ifEmpty {
+                usedFallback = true
+                SourceAiAnalyzer.localDecisions(candidates, "AI没有返回有效筛选结果")
+            }
+            val decisionsByUrl = decisions.associateBy { it.url }
+            var invalidCount = 0
+            var suspectCount = 0
+            bookSources.forEach { source ->
+                source.removeGroup("AI判定失效")
+                source.removeGroup("AI疑似失效")
+                when (decisionsByUrl[source.bookSourceUrl]?.status) {
+                    "invalid" -> {
+                        source.addGroup("AI判定失效")
+                        invalidCount++
+                    }
+
+                    "suspect" -> {
+                        source.addGroup("AI疑似失效")
+                        suspectCount++
+                    }
+                }
+            }
+            appDb.bookSourceDao.update(*bookSources.toTypedArray())
+            val mode = if (usedFallback) "AI分析失败，已用本地校验兜底" else "AI分析完成"
+            "$mode\nAI判定失效：$invalidCount 个\nAI疑似失效：$suspectCount 个"
+        }.onSuccess {
+            success.invoke(it)
+        }.onError {
+            context.toastOnUi(it.stackTraceStr)
+        }
+    }
+
+    private fun selectedSourcesForExport(
+        adapter: BookSourceAdapter,
+        searchKey: String?,
+        sortAscending: Boolean,
+        sort: BookSourceSort
+    ): List<BookSource> {
+        val selection = adapter.selection
+        if (selection.isEmpty()) {
+            return emptyList()
+        }
+        val selectedRate = selection.size.toFloat() / adapter.itemCount.toFloat()
+        return if (selectedRate == 1f) {
+            getBookSources(searchKey, sortAscending, sort)
+        } else if (selectedRate < 0.3) {
+            selection.toBookSource()
+        } else {
+            val keys = selection.map { it.bookSourceUrl }.toHashSet()
+            val bookSources = getBookSources(searchKey, sortAscending, sort)
+            bookSources.filter {
+                keys.contains(it.bookSourceUrl)
+            }
         }
     }
 

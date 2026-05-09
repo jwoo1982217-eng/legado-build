@@ -48,6 +48,11 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/menu_export_private_source"
+        android:title="@string/export_private_book_source"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/menu_share_source"
         android:title="@string/share_selected_source"
         app:showAsAction="never" />
@@ -56,6 +61,11 @@
         android:id="@+id/menu_check_source"
         android:icon="@drawable/ic_check_source"
         android:title="@string/check_select_source"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/menu_ai_filter_invalid_source"
+        android:title="@string/ai_filter_invalid_source"
         app:showAsAction="never" />
 
     <item
