@@ -1,6 +1,7 @@
 package io.legado.app.ui.replace
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.viewModelScope
 import io.legado.app.base.BaseRuleEvent
@@ -212,6 +213,29 @@ class ReplaceRuleViewModel(
     fun setSortMode(mode: String) {
         _sortMode.value = mode
         context.putPrefString(PreferKey.replaceSortMode, mode)
+    }
+
+    fun exportAllToUri(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val rules = appDb.replaceRuleDao.all
+                if (rules.isEmpty()) {
+                    _eventChannel.send(BaseRuleEvent.ShowSnackbar("没有可导出的替换规则"))
+                    return@launch
+                }
+                val json = generateJson(rules)
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    outputStream.bufferedWriter().use { writer ->
+                        writer.write(json)
+                        writer.flush()
+                    }
+                }
+                _eventChannel.send(BaseRuleEvent.ShowSnackbar("已导出全部 ${rules.size} 条替换规则"))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _eventChannel.send(BaseRuleEvent.ShowSnackbar("导出全部失败: ${e.localizedMessage}"))
+            }
+        }
     }
 
     fun saveSortOrder() {

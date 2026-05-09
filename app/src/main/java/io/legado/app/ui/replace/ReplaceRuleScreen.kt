@@ -143,6 +143,13 @@ fun ReplaceRuleScreen(
         }
     )
 
+    val exportAllDoc = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+        onResult = { uri ->
+            uri?.let { viewModel.exportAllToUri(it) }
+        }
+    )
+
     SourceInputDialog(
         show = showUrlInput,
         title = stringResource(R.string.import_on_line),
@@ -355,6 +362,13 @@ fun ReplaceRuleScreen(
                 onClick = { showImportSheet = true; dismiss() }
             )
             RoundDropdownMenuItem(
+                text = "导出全部规则",
+                onClick = {
+                    exportAllDoc.launch("exportReplaceRule-all.json")
+                    dismiss()
+                }
+            )
+            RoundDropdownMenuItem(
                 text = "分组管理",
                 onClick = { showGroupManageSheet = true; dismiss() }
             )
@@ -464,4 +478,3 @@ fun ReplaceRuleScreen(
         }
     }
 }
-
