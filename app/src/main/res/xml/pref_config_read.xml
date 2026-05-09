@@ -123,7 +123,6 @@
             android:defaultValue="true"
             android:dependency="smartTextCleanEnable"
             android:key="smartTextCleanRegexAds"
-            android:summary="@string/smart_text_clean_regex_ads_summary"
             android:title="@string/smart_text_clean_regex_ads"
             app:isBottomBackground="true" />
 
@@ -139,7 +138,6 @@
             android:defaultValue="false"
             android:dependency="smartTextCleanEnable"
             android:key="smartTextCleanAiAssist"
-            android:summary="@string/smart_text_clean_ai_assist_summary"
             android:title="@string/smart_text_clean_ai_assist"
             app:isBottomBackground="true" />
 
