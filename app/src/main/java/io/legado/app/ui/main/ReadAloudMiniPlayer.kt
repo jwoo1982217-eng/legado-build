@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,18 +38,23 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -68,12 +75,14 @@ import io.legado.app.ui.widget.components.text.AppText
 import io.legado.app.utils.eventObservable
 import io.legado.app.utils.startActivityForBook
 import org.koin.compose.koinInject
+import kotlin.math.roundToInt
 
 @Composable
 fun ReadAloudMiniPlayer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var status by remember {
         mutableIntStateOf(
@@ -87,6 +96,8 @@ fun ReadAloudMiniPlayer(
     var book by remember { mutableStateOf(ReadBook.book) }
     var chapterTitle by remember { mutableStateOf(ReadBook.curTextChapter?.title.orEmpty()) }
     var expanded by remember { mutableStateOf(false) }
+    var verticalOffsetPx by rememberSaveable { mutableFloatStateOf(0f) }
+    val maxUpOffsetPx = with(density) { 420.dp.toPx() }
 
     fun syncState(eventState: Int? = null) {
         status = when {
@@ -130,9 +141,20 @@ fun ReadAloudMiniPlayer(
     if (status == Status.STOP || currentBook == null) return
 
     val isPlaying = status == Status.PLAY
+    val playerModifier = modifier
+        .offset { IntOffset(0, verticalOffsetPx.roundToInt()) }
+        .pointerInput(maxUpOffsetPx) {
+            detectDragGestures { change, dragAmount ->
+                change.consume()
+                verticalOffsetPx = (verticalOffsetPx + dragAmount.y)
+                    .coerceIn(-maxUpOffsetPx, 0f)
+            }
+        }
+        .then(if (expanded) Modifier else Modifier.size(68.dp))
+        .animateContentSize()
+
     Surface(
-        modifier = modifier
-            .animateContentSize(),
+        modifier = playerModifier,
         shape = if (expanded) RoundedCornerShape(28.dp) else CircleShape,
         color = LegadoTheme.colorScheme.surfaceContainerHigh,
         contentColor = LegadoTheme.colorScheme.onSurface,
@@ -164,9 +186,10 @@ fun ReadAloudMiniPlayer(
         } else {
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .fillMaxSize()
+                    .clip(CircleShape)
                     .clickable { expanded = true }
-                    .padding(5.dp),
+                    .padding(6.dp),
                 contentAlignment = Alignment.Center
             ) {
                 RotatingCoverDisc(
