@@ -1,5 +1,7 @@
 package io.legado.app.ui.book.read
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.util.TypedValue
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -16,6 +18,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
@@ -184,6 +187,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     LayoutProgressListener {
 
     private var aiBgMusicMenuPopup: PopupWindow? = null
+    private var aiBgMusicFloatAnimator: ObjectAnimator? = null
 
     private val tocActivity =
         registerForActivityResult(TocActivityResult()) {
@@ -448,6 +452,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         upSystemUiVisibility()
         registerReceiver(timeBatteryReceiver, timeBatteryReceiver.filter)
         binding.readView.upTime()
+        updateAiBgMusicFloatButtonState()
         screenOffTimerStart()
         // 网络监听，当从无网切换到网络环境时同步进度（注意注册的同时就会收到监听，因此界面激活时无需重复执行同步操作）
         networkChangedListener.register()
@@ -1424,6 +1429,31 @@ class ReadBookActivity : BaseReadBookActivity(),
         )
         binding.aiBgmFloatButton.contentDescription =
             if (playing) "暂停背景音乐" else "播放背景音乐"
+        updateAiBgMusicFloatButtonRotation(playing)
+    }
+
+    private fun updateAiBgMusicFloatButtonRotation(playing: Boolean) {
+        val button = binding.aiBgmFloatButton
+        if (playing) {
+            if (aiBgMusicFloatAnimator?.isStarted == true) return
+            aiBgMusicFloatAnimator?.cancel()
+            aiBgMusicFloatAnimator = ObjectAnimator.ofFloat(
+                button,
+                View.ROTATION,
+                button.rotation,
+                button.rotation + 360f
+            ).apply {
+                duration = 6000L
+                repeatCount = ValueAnimator.INFINITE
+                repeatMode = ValueAnimator.RESTART
+                interpolator = LinearInterpolator()
+                start()
+            }
+        } else {
+            aiBgMusicFloatAnimator?.cancel()
+            aiBgMusicFloatAnimator = null
+            button.animate().rotation(0f).setDuration(180L).start()
+        }
     }
 
     private fun showAiBgMusicMenu(anchor: View) {
@@ -2296,6 +2326,8 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        aiBgMusicFloatAnimator?.cancel()
+        aiBgMusicFloatAnimator = null
         audiobookCacheGenerator.cancelLocal()
         tts?.clearTts()
         textActionMenu.dismiss()
