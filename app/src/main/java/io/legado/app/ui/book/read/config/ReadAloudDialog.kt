@@ -11,24 +11,41 @@ import com.google.android.material.slider.Slider
 import io.legado.app.R
 import io.legado.app.base.BaseBottomSheetDialogFragment
 import io.legado.app.constant.EventBus
+import io.legado.app.data.appDb
 import io.legado.app.databinding.DialogReadAloudBinding
 import io.legado.app.help.config.AppConfig
+import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.AiBgMusic
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.book.read.ReadBookActivity
+import io.legado.app.utils.GSON
 import io.legado.app.utils.getPrefBoolean
+import io.legado.app.utils.StringUtils
+import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.observeEvent
 import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.viewbindingdelegate.viewBinding
 import io.legado.app.utils.visible
 
 
-class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud) {
+class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud),
+    SpeakEngineDialog.CallBack {
     private val callBack: CallBack? get() = activity as? CallBack
     private val binding by viewBinding(DialogReadAloudBinding::bind)
+    private val speakEngineSummary: String
+        get() {
+            val ttsEngine = ReadAloud.ttsEngine
+                ?: return getString(R.string.system_tts)
+            if (StringUtils.isNumeric(ttsEngine)) {
+                return appDb.httpTTSDao.getName(ttsEngine.toLong())
+                    ?: getString(R.string.system_tts)
+            }
+            return GSON.fromJsonObject<SelectItem<String>>(ttsEngine).getOrNull()?.title
+                ?: getString(R.string.system_tts)
+        }
 
     override fun onStart() {
         super.onStart()
@@ -92,6 +109,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbTtsFollowSys.isChecked = requireContext().getPrefBoolean("ttsFollowSys", true)
         cbAiBgm.isChecked = AiBgMusic.enabled
         cbAudioPreload.isChecked = AppConfig.audioPreloadEnabled && AppConfig.audioPreDownloadNum > 0
+        upSpeakEngineSummary()
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
         upSeekTimer()
     }
@@ -103,6 +121,9 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
         ivSetting.setOnClickListener {
             ReadAloudConfigDialog().show(childFragmentManager, "readAloudConfigDialog")
+        }
+        btnSpeakEngine.setOnClickListener {
+            SpeakEngineDialog().show(childFragmentManager, "speakEngineDialog")
         }
         tvPre.setOnClickListener { ReadBook.moveToPrevChapter(upContent = true, toLast = false) }
         tvNext.setOnClickListener { ReadBook.moveToNextChapter(true) }
@@ -264,6 +285,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     @SuppressLint("SetTextI18n")
     private fun upTtsSpeechRateText(value: Int) {
         binding.tvTtsSpeedValue.text = value.toString()
+    }
+
+    override fun upSpeakEngineSummary() {
+        binding.btnSpeakEngine.text = getString(R.string.speak_engine) + "：" + speakEngineSummary
     }
 
     private fun upTtsSpeechRate() {
