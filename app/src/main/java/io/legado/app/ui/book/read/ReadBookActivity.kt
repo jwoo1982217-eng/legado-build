@@ -120,6 +120,7 @@ import io.legado.app.ui.browser.WebViewActivity
 import io.legado.app.ui.dict.DictDialog
 import io.legado.app.ui.login.SourceLoginActivity
 import io.legado.app.ui.login.SourceLoginJsExtensions
+import io.legado.app.ui.main.MainActivity
 import io.legado.app.ui.replace.ReplaceEditRoute
 import io.legado.app.ui.replace.ReplaceRuleActivity
 import io.legado.app.ui.widget.PopupAction
@@ -369,8 +370,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                 return@addCallback
             }
             if (BaseReadAloudService.isRun) {
-                ReadBook.commitReadSession()
-                supportFinishAfterTransition()
+                returnToBookshelf()
                 return@addCallback
             }
             if (isAutoPage) {
@@ -406,6 +406,7 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         viewModel.initData(intent)
     }
 
@@ -1294,6 +1295,15 @@ class ReadBookActivity : BaseReadBookActivity(),
      */
     override fun showMenuBar() {
         binding.readMenu.runMenuIn()
+    }
+
+    override fun returnToBookshelf() {
+        ReadBook.saveRead()
+        ReadBook.commitReadSession()
+        binding.readMenu.runMenuOut()
+        startActivity(Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        })
     }
 
     override val oldBook: Book?

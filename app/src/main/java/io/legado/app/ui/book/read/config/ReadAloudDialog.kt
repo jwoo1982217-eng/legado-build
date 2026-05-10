@@ -139,7 +139,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
         ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
         ivCatalog.setOnClickListener { callBack?.openChapterList() }
-        ivToBackstage.setOnClickListener { callBack?.finish() }
+        ivToBackstage.setOnClickListener {
+            callBack?.returnToBookshelf()
+            dismissAllowingStateLoss()
+        }
         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.ttsFlowSys = isChecked
             upTtsSpeechRateEnabled(!isChecked)
@@ -349,6 +352,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         fun showAiBgMusicPlaylist()
         fun showAiBgMusicAnalysis()
         fun reanalyzeAiBgMusic()
-        fun finish()
+        fun returnToBookshelf()
     }
 }
