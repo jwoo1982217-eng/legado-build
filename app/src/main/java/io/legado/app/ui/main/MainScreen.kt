@@ -64,6 +64,8 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import io.legado.app.R
+import io.legado.app.data.appDb
+import io.legado.app.model.BookCover
 import io.legado.app.ui.book.read.AudiobookCacheGenerator
 import io.legado.app.ui.main.bookshelf.BookshelfScreen
 import io.legado.app.ui.main.bookshelf.BookShelfItem
@@ -92,6 +94,7 @@ import io.legado.app.ui.widget.dialog.TextDialog
 import io.legado.app.utils.sendToClip
 import io.legado.app.utils.showDialogFragment
 import io.legado.app.utils.startActivityForBook
+import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -464,6 +467,31 @@ fun MainScreen(
                             book = book.toLightBook(),
                             startIndex = book.durChapterIndex
                         )
+                    },
+                    onSearchCover = { book ->
+                        bookshelfActionBook = null
+                        context.toastOnUi("正在智能搜索封面...")
+                        coroutineScope.launch {
+                            val result = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    val dbBook = appDb.bookDao.getBook(book.bookUrl)
+                                        ?: book.toLightBook()
+                                    if (!dbBook.getDisplayCover().isNullOrBlank()) {
+                                        return@withContext "这本书已经有封面了"
+                                    }
+                                    val coverUrl = BookCover.searchCover(dbBook)
+                                    if (coverUrl.isNullOrBlank()) {
+                                        return@withContext "没有找到可用封面，请检查封面规则或书源搜索结果"
+                                    }
+                                    dbBook.customCoverUrl = coverUrl
+                                    dbBook.save()
+                                    "封面已更新"
+                                }
+                            }.getOrElse {
+                                "智能搜索封面失败：${it.localizedMessage ?: it.javaClass.simpleName}"
+                            }
+                            context.toastOnUi(result)
+                        }
                     }
                 )
             }
@@ -476,7 +504,8 @@ private fun BookshelfBookActionDialog(
     book: BookShelfItem?,
     onDismissRequest: () -> Unit,
     onOpenInfo: (BookShelfItem) -> Unit,
-    onGenerateAudiobook: (BookShelfItem) -> Unit
+    onGenerateAudiobook: (BookShelfItem) -> Unit,
+    onSearchCover: (BookShelfItem) -> Unit
 ) {
     val currentBook = book ?: return
     AppAlertDialog(
@@ -486,6 +515,14 @@ private fun BookshelfBookActionDialog(
         text = "选择书架操作",
         content = {
             if (!currentBook.isAudio && !currentBook.isImage) {
+                if (currentBook.getDisplayCover().isNullOrBlank()) {
+                    SecondaryButton(
+                        text = "智能搜索封面",
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { onSearchCover(currentBook) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 PrimaryButton(
                     text = "有声书生成",
                     modifier = Modifier.fillMaxWidth(),
