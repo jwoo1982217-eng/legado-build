@@ -476,9 +476,6 @@ fun MainScreen(
                                 withContext(Dispatchers.IO) {
                                     val dbBook = appDb.bookDao.getBook(book.bookUrl)
                                         ?: book.toLightBook()
-                                    if (!dbBook.getDisplayCover().isNullOrBlank()) {
-                                        return@withContext "这本书已经有封面了"
-                                    }
                                     val coverUrl = BookCover.searchCover(dbBook)
                                     if (coverUrl.isNullOrBlank()) {
                                         return@withContext "没有找到可用封面，请检查封面规则或书源搜索结果"
@@ -515,14 +512,12 @@ private fun BookshelfBookActionDialog(
         text = "选择书架操作",
         content = {
             if (!currentBook.isAudio && !currentBook.isImage) {
-                if (currentBook.getDisplayCover().isNullOrBlank()) {
-                    SecondaryButton(
-                        text = "智能搜索封面",
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onSearchCover(currentBook) }
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                SecondaryButton(
+                    text = "智能搜索封面",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onSearchCover(currentBook) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 PrimaryButton(
                     text = "有声书生成",
                     modifier = Modifier.fillMaxWidth(),
