@@ -171,6 +171,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             callBack?.generateAudiobookCache()
             dismissAllowingStateLoss()
         }
+        btnAudiobookStatus.setOnClickListener {
+            callBack?.showAudiobookCacheStatus()
+            dismissAllowingStateLoss()
+        }
 
         ivTimer.setOnClickListener {
             AppConfig.ttsTimer = seekTimer.value.toInt()
@@ -329,6 +333,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         fun openChapterList()
         fun onClickReadAloud()
         fun generateAudiobookCache()
+        fun showAudiobookCacheStatus()
         fun openAiBgMusicSettings()
         fun showAiBgMusicFrequency()
         fun showAiBgMusicPlaylist()

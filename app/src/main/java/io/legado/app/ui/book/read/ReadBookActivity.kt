@@ -2019,6 +2019,10 @@ class ReadBookActivity : BaseReadBookActivity(),
         audiobookCacheGenerator.showGenerateDialog()
     }
 
+    override fun showAudiobookCacheStatus() {
+        audiobookCacheGenerator.showChapterStatusDialog()
+    }
+
     override fun showHelp() {
         showHelp("readMenuHelp")
     }

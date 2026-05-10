@@ -54,8 +54,98 @@ object LocalAudiobookFileGenerator {
         val isReady: Boolean get() = status == "ready"
     }
 
+    data class ChapterStatus(
+        val status: String,
+        val path: String,
+        val format: String,
+        val sizeBytes: Long,
+        val totalItems: Int,
+        val readyItems: Int,
+        val failedItems: Int,
+        val error: String,
+        val updatedAt: Long,
+    )
+
     fun shouldUseTtsServerBridge(): Boolean {
         return resolveEnginePlan() is EnginePlan.TtsServer
+    }
+
+    fun inspectChapterStatus(
+        context: Context,
+        bookName: String,
+        chapter: TtsServerDbBridge.AudiobookChapter
+    ): ChapterStatus {
+        val dir = chapterDir(context.applicationContext, bookName)
+        val baseName = chapterFileBaseName(chapter)
+        val manifestFile = File(dir, "$baseName.json")
+        if (manifestFile.exists() && manifestFile.length() > 0) {
+            return runCatching {
+                val json = JSONObject(manifestFile.readText(Charsets.UTF_8))
+                val items = json.optJSONArray("items") ?: JSONArray()
+                var readyItems = 0
+                var failedItems = 0
+                for (index in 0 until items.length()) {
+                    val itemStatus = items.optJSONObject(index)?.optString("status").orEmpty()
+                    when (itemStatus.lowercase()) {
+                        "ready", "completed" -> readyItems++
+                        "failed" -> failedItems++
+                    }
+                }
+                ChapterStatus(
+                    status = json.optString("status").ifBlank { "unknown" },
+                    path = json.optString("path"),
+                    format = json.optString("format"),
+                    sizeBytes = json.optLong("sizeBytes", 0L),
+                    totalItems = items.length(),
+                    readyItems = readyItems,
+                    failedItems = failedItems,
+                    error = json.optString("error"),
+                    updatedAt = json.optLong("updatedAt", manifestFile.lastModified()),
+                )
+            }.getOrElse { error ->
+                ChapterStatus(
+                    status = "failed",
+                    path = manifestFile.absolutePath,
+                    format = "json",
+                    sizeBytes = manifestFile.length(),
+                    totalItems = 0,
+                    readyItems = 0,
+                    failedItems = 0,
+                    error = "manifest 解析失败：${error.localizedMessage ?: error.javaClass.simpleName}",
+                    updatedAt = manifestFile.lastModified(),
+                )
+            }
+        }
+
+        val audioFile = listOf("mp3", "wav", "audio")
+            .asSequence()
+            .map { File(dir, "$baseName.$it") }
+            .firstOrNull { it.exists() && it.length() > 0 }
+        if (audioFile != null) {
+            return ChapterStatus(
+                status = "ready",
+                path = audioFile.absolutePath,
+                format = audioFile.extension,
+                sizeBytes = audioFile.length(),
+                totalItems = 0,
+                readyItems = 0,
+                failedItems = 0,
+                error = "",
+                updatedAt = audioFile.lastModified(),
+            )
+        }
+
+        return ChapterStatus(
+            status = "not_generated",
+            path = "",
+            format = "",
+            sizeBytes = 0L,
+            totalItems = 0,
+            readyItems = 0,
+            failedItems = 0,
+            error = "",
+            updatedAt = 0L,
+        )
     }
 
     suspend fun generate(

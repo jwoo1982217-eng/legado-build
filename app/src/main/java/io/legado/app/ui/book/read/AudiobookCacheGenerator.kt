@@ -28,6 +28,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class AudiobookCacheGenerator(
     private val context: Context,
@@ -51,6 +54,58 @@ class AudiobookCacheGenerator(
             currentSource = ReadBook.bookSource,
             currentChapterText = currentText
         )
+    }
+
+    fun showChapterStatusDialog() {
+        val book = ReadBook.book ?: run {
+            context.toastOnUi("当前没有打开的书籍")
+            return
+        }
+        val chapterCount = appDb.bookChapterDao.getChapterCount(book.bookUrl)
+        if (chapterCount <= 0) {
+            context.toastOnUi("当前书籍目录为空，无法查询有声书状态")
+            return
+        }
+        val safeStartIndex = ReadBook.durChapterIndex.coerceIn(0, chapterCount - 1)
+        val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
+        val submitCount = (chapterCount - safeStartIndex).coerceAtMost(preloadCount + 1)
+        val statusView = TextView(context).apply {
+            setPadding(24.dpToPx(), 16.dpToPx(), 24.dpToPx(), 8.dpToPx())
+            textSize = 16f
+            text = "正在查询章节生成状态..."
+        }
+        val statusDialog = AlertDialog.Builder(context)
+            .setTitle("章节状态查询")
+            .setView(ScrollView(context).apply { addView(statusView) })
+            .setPositiveButton(R.string.ok, null)
+            .setNeutralButton("刷新", null)
+            .create()
+
+        fun refresh() {
+            statusView.text = "正在查询章节生成状态..."
+            coroutineScope.launch {
+                statusView.text = runCatching {
+                    withContext(IO) {
+                        buildChapterStatusText(
+                            book = book,
+                            startIndex = safeStartIndex,
+                            submitCount = submitCount,
+                            preloadCount = preloadCount
+                        )
+                    }
+                }.getOrElse { error ->
+                    "章节状态查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
+                }
+            }
+        }
+
+        statusDialog.setOnShowListener {
+            statusDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                refresh()
+            }
+        }
+        statusDialog.show()
+        refresh()
     }
 
     fun showGenerateDialog(
@@ -117,6 +172,103 @@ class AudiobookCacheGenerator(
 
     fun cancelLocal() {
         job?.cancel()
+    }
+
+    private fun buildChapterStatusText(
+        book: Book,
+        startIndex: Int,
+        submitCount: Int,
+        preloadCount: Int
+    ): String {
+        val chapters = collectChapterPreview(
+            bookUrl = book.bookUrl,
+            startIndex = startIndex,
+            submitCount = submitCount
+        )
+        if (chapters.isEmpty()) {
+            return "当前缓存窗口没有可查询章节。"
+        }
+
+        if (LocalAudiobookFileGenerator.shouldUseTtsServerBridge()) {
+            return buildTtsServerStatusText(chapters, preloadCount)
+        }
+
+        val snapshots = chapters.map { chapter ->
+            chapter to LocalAudiobookFileGenerator.inspectChapterStatus(
+                context = context,
+                bookName = book.name,
+                chapter = TtsServerDbBridge.AudiobookChapter(
+                    chapterIndex = chapter.chapterIndex,
+                    chapterTitle = chapter.title,
+                    chapterText = ""
+                )
+            )
+        }
+        val readyCount = snapshots.count { (_, status) -> status.status.isReadyStatus() }
+        val failedCount = snapshots.count { (_, status) -> status.status.lowercase() == "failed" }
+        val states = snapshots.map { (chapter, status) ->
+            chapter.copy(state = status.status.toChapterState())
+        }
+
+        return formatGenerationStatus(
+            header = "生成模式：开源阅读本地整章合成\n生成范围：当前章 + 后面 $preloadCount 章",
+            chapters = states,
+            footer = buildString {
+                append("已生成：")
+                append(readyCount)
+                append("/")
+                append(chapters.size)
+                if (failedCount > 0) {
+                    append("，失败 ")
+                    append(failedCount)
+                }
+                append("\n\n章节详情：\n")
+                snapshots.forEachIndexed { index, (chapter, status) ->
+                    if (index > 0) append("\n")
+                    append(formatChapterStatusDetail(chapter, status))
+                }
+            }
+        )
+    }
+
+    private fun buildTtsServerStatusText(
+        chapters: List<ChapterUiState>,
+        preloadCount: Int
+    ): String {
+        val runningTaskId = taskId
+        if (!runningTaskId.isNullOrBlank()) {
+            return runCatching {
+                val status = TtsServerDbBridge.queryAudiobookGeneration(context, runningTaskId)
+                    .getOrThrow()
+                val states = chapters.map { it.copy() }.toMutableList()
+                markChapterProgress(
+                    chapters = states,
+                    readyCount = status.readyChapters,
+                    failedCount = status.failedChapters,
+                    running = status.status.lowercase() !in setOf(
+                        "ready",
+                        "completed",
+                        "failed",
+                        "cancelled",
+                        "canceled"
+                    )
+                )
+                status.formatForUser(states)
+            }.getOrElse { error ->
+                formatGenerationStatus(
+                    header = "生成模式：J.TTS 缓存工厂\n生成范围：当前章 + 后面 $preloadCount 章",
+                    chapters = chapters.map { it.copy(state = "查询失败") },
+                    footer = "TTS 端状态查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
+                )
+            }
+        }
+
+        return formatGenerationStatus(
+            header = "生成模式：J.TTS 缓存工厂\n生成范围：当前章 + 后面 $preloadCount 章",
+            chapters = chapters.map { it.copy(state = "等待 TTS 端状态") },
+            footer = "当前阅读端没有正在追踪的 J.TTS 任务 ID。\n" +
+                "如果已经生成过历史缓存，需要 J.TTS 端补充按书名/章节查询缓存状态接口后，这里才能直接显示每章真实状态。"
+        )
     }
 
     private fun start(
@@ -329,6 +481,51 @@ class AudiobookCacheGenerator(
         chapters
     }
 
+    private fun formatChapterStatusDetail(
+        chapter: ChapterUiState,
+        status: LocalAudiobookFileGenerator.ChapterStatus
+    ): String {
+        return buildString {
+            append((chapter.chapterIndex + 1).toString().padStart(2, '0'))
+            append(". 第 ")
+            append(chapter.chapterIndex + 1)
+            append(" 章 ")
+            append(chapter.title.ifBlank { "未命名章节" })
+            append("\n状态：")
+            append(status.status.toChapterState())
+            if (status.format.isNotBlank()) {
+                append("，格式：")
+                append(status.format.uppercase())
+            }
+            if (status.sizeBytes > 0) {
+                append("，大小：")
+                append(status.sizeBytes.formatFileSize())
+            }
+            if (status.totalItems > 0) {
+                append("\n音频片段：")
+                append(status.readyItems)
+                append("/")
+                append(status.totalItems)
+                if (status.failedItems > 0) {
+                    append("，失败 ")
+                    append(status.failedItems)
+                }
+            }
+            if (status.path.isNotBlank()) {
+                append("\n文件：")
+                append(status.path)
+            }
+            if (status.updatedAt > 0) {
+                append("\n更新时间：")
+                append(status.updatedAt.formatTime())
+            }
+            if (status.error.isNotBlank()) {
+                append("\n原因：")
+                append(status.error)
+            }
+        }
+    }
+
     private suspend fun pollStatus(
         taskId: String,
         statusView: TextView,
@@ -472,6 +669,38 @@ class AudiobookCacheGenerator(
                 append(message)
             }
         })
+    }
+
+    private fun String.isReadyStatus(): Boolean {
+        return lowercase() in setOf("ready", "completed")
+    }
+
+    private fun String.toChapterState(): String {
+        return when (lowercase()) {
+            "ready", "completed" -> "已生成"
+            "failed" -> "生成失败"
+            "pending" -> "等待生成"
+            "caching_audio" -> "生成中"
+            "cancelled", "canceled" -> "已取消"
+            "not_generated" -> "未生成"
+            else -> ifBlank { "未知" }
+        }
+    }
+
+    private fun Long.formatFileSize(): String {
+        if (this < 1024L) return "${this}B"
+        val units = listOf("KB", "MB", "GB")
+        var value = this.toDouble() / 1024.0
+        var unitIndex = 0
+        while (value >= 1024.0 && unitIndex < units.lastIndex) {
+            value /= 1024.0
+            unitIndex++
+        }
+        return String.format(Locale.US, "%.1f%s", value, units[unitIndex])
+    }
+
+    private fun Long.formatTime(): String {
+        return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(this))
     }
 
     private data class ChapterUiState(
