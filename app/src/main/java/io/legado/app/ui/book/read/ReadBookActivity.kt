@@ -5,10 +5,12 @@ import android.animation.ValueAnimator
 import android.util.TypedValue
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -128,6 +130,7 @@ import io.legado.app.utils.GSON
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.NetworkUtils
 import io.legado.app.utils.StartActivityContract
+import io.legado.app.utils.ColorUtils
 import io.legado.app.utils.applyOpenTint
 import io.legado.app.utils.buildMainHandler
 import io.legado.app.utils.dpToPx
@@ -1436,7 +1439,59 @@ class ReadBookActivity : BaseReadBookActivity(),
         )
         binding.aiBgmFloatButton.contentDescription =
             if (playing) "暂停背景音乐" else "播放背景音乐"
+        updateAiBgMusicFloatButtonAppearance()
         updateAiBgMusicFloatButtonRotation(playing)
+    }
+
+    private fun updateAiBgMusicFloatButtonAppearance() {
+        val isLightBackground = ColorUtils.isColorLight(ReadBookConfig.bgMeanColor)
+        val foreground = if (isLightBackground) {
+            Color.parseColor("#D8242A2E")
+        } else {
+            Color.WHITE
+        }
+        val ripple = if (isLightBackground) {
+            Color.parseColor("#2A242A2E")
+        } else {
+            Color.parseColor("#33FFFFFF")
+        }
+        binding.aiBgmFloatButton.apply {
+            iconTint = ColorStateList.valueOf(foreground)
+            setTextColor(foreground)
+            rippleColor = ColorStateList.valueOf(ripple)
+            background = createAiBgMusicFloatButtonBackground(isLightBackground)
+        }
+    }
+
+    private fun createAiBgMusicFloatButtonBackground(isLightBackground: Boolean): LayerDrawable {
+        val outerFill: Int
+        val outerStroke: Int
+        val innerFill: Int
+        val innerStroke: Int
+        if (isLightBackground) {
+            outerFill = Color.parseColor("#1F000000")
+            outerStroke = Color.parseColor("#6B242A2E")
+            innerFill = Color.parseColor("#10000000")
+            innerStroke = Color.parseColor("#4D242A2E")
+        } else {
+            outerFill = Color.parseColor("#2EFFFFFF")
+            outerStroke = Color.parseColor("#99FFFFFF")
+            innerFill = Color.parseColor("#24FFFFFF")
+            innerStroke = Color.parseColor("#66FFFFFF")
+        }
+        val outer = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(outerFill)
+            setStroke(1.dpToPx(), outerStroke)
+        }
+        val inner = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(innerFill)
+            setStroke(1.dpToPx(), innerStroke)
+        }
+        return LayerDrawable(arrayOf(outer, inner)).apply {
+            setLayerInset(1, 7.dpToPx(), 7.dpToPx(), 7.dpToPx(), 7.dpToPx())
+        }
     }
 
     private fun updateAiBgMusicFloatButtonRotation(playing: Boolean) {
@@ -2383,6 +2438,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     11 -> readView.submitRenderTask()
                 }
             }
+            updateAiBgMusicFloatButtonAppearance()
         }
         observeEvent<Int>(EventBus.ALOUD_STATE) {
             if (it == Status.STOP || it == Status.PAUSE) {
