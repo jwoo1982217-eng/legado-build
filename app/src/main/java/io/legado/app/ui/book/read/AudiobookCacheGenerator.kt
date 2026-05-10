@@ -1,6 +1,7 @@
 package io.legado.app.ui.book.read
 
 import android.content.Context
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import io.legado.app.R
@@ -67,26 +68,39 @@ class AudiobookCacheGenerator(
         val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
         val submitCount = (chapterCount - safeStartIndex).coerceAtMost(preloadCount + 1)
         val startTitle = appDb.bookChapterDao.getChapter(book.bookUrl, safeStartIndex)?.title.orEmpty()
+        val previewChapters = collectChapterPreview(
+            bookUrl = book.bookUrl,
+            startIndex = safeStartIndex,
+            submitCount = submitCount
+        )
         val useTtsServer = LocalAudiobookFileGenerator.shouldUseTtsServerBridge()
-        val targetDesc = if (useTtsServer) {
-            "本次会提交 $submitCount 章给 TTS 缓存工厂。"
+        val modeDesc = if (useTtsServer) {
+            "生成模式：J.TTS 缓存工厂"
         } else {
-            "本次会由开源阅读调用当前朗读引擎生成 $submitCount 章整章音频。"
+            "生成模式：开源阅读本地整章合成"
+        }
+        val targetDesc = if (useTtsServer) {
+            "工作方式：把 $submitCount 章正文提交给 TTS，由 TTS 分析台词本、请求句子音频、生成章节缓存。"
+        } else {
+            "工作方式：开源阅读调用当前朗读引擎，把句子音频合并成每章一个完整音频文件。"
         }
         val statusDesc = if (useTtsServer) {
-            "完成状态以 TTS 端实际缓存队列返回为准。"
+            "完成判断：以 TTS 端实际缓存队列结果为准。"
         } else {
-            "完成后会在阅读 App 文件目录生成每章一个完整音频文件。"
+            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。"
         }
 
         AlertDialog.Builder(context)
-            .setTitle("生成有声书缓存")
+            .setTitle("生成整章有声书音频")
             .setMessage(
                 "书名：${book.name}\n" +
                         "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
                         "生成范围：当前章 + 后面 $preloadCount 章\n" +
+                        "$modeDesc\n" +
                         "$targetDesc\n\n" +
-                        statusDesc
+                        statusDesc +
+                        "\n\n本次章节队列：\n" +
+                        formatChapterQueue(previewChapters)
             )
             .setPositiveButton("开始生成") { _, _ ->
                 start(
@@ -120,9 +134,12 @@ class AudiobookCacheGenerator(
             textSize = 16f
             text = "正在准备整章正文和缓存窗口..."
         }
+        val statusScrollView = ScrollView(context).apply {
+            addView(statusView)
+        }
         val statusDialog = AlertDialog.Builder(context)
-            .setTitle("正在生成有声书音频")
-            .setView(statusView)
+            .setTitle("正在生成整章音频")
+            .setView(statusScrollView)
             .setNegativeButton("取消任务", null)
             .setNeutralButton("后台运行", null)
             .create()
@@ -157,8 +174,19 @@ class AudiobookCacheGenerator(
                     preloadCount = preloadCount,
                     currentChapterText = currentChapterText
                 )
+                val chapterStates = chapters.map {
+                    ChapterUiState(
+                        chapterIndex = it.chapterIndex,
+                        title = it.chapterTitle,
+                        state = "等待生成"
+                    )
+                }.toMutableList()
                 if (LocalAudiobookFileGenerator.shouldUseTtsServerBridge()) {
-                    statusView.text = "已准备 ${chapters.size} 章正文，正在提交 TTS 缓存工厂..."
+                    statusView.text = formatGenerationStatus(
+                        header = "已准备 ${chapters.size} 章正文，正在提交 TTS 缓存工厂...",
+                        chapters = chapterStates,
+                        footer = ""
+                    )
                     val submit = withContext(IO) {
                         TtsServerDbBridge.submitAudiobookGeneration(
                             context = context,
@@ -173,14 +201,28 @@ class AudiobookCacheGenerator(
                     }
                     taskId = submit.taskId
                     if (submit.taskId.isBlank()) {
-                        statusView.text = noTaskIdMessage(submit)
+                        statusView.text = formatGenerationStatus(
+                            header = "TTS 已接收任务，但没有返回任务 ID。",
+                            chapters = chapterStates,
+                            footer = noTaskIdMessage(submit)
+                        )
                         return@launch
                     }
-                    statusView.text = "TTS 已接收 ${submit.acceptedChapters} 章，正在等待缓存进度..."
-                    pollStatus(submit.taskId, statusView)
+                    markChapterProgress(chapterStates, readyCount = 0, failedCount = 0, running = true)
+                    statusView.text = formatGenerationStatus(
+                        header = "TTS 已接收 ${submit.acceptedChapters} 章，正在等待缓存进度...",
+                        chapters = chapterStates,
+                        footer = "任务 ID：${submit.taskId}"
+                    )
+                    pollStatus(submit.taskId, statusView, chapterStates)
                 } else {
                     taskId = null
-                    statusView.text = "已准备 ${chapters.size} 章正文，阅读端正在生成整章音频..."
+                    markChapterProgress(chapterStates, readyCount = 0, failedCount = 0, running = true)
+                    statusView.text = formatGenerationStatus(
+                        header = "已准备 ${chapters.size} 章正文，阅读端正在生成整章音频...",
+                        chapters = chapterStates,
+                        footer = ""
+                    )
                     val final = withContext(IO) {
                         LocalAudiobookFileGenerator.generate(
                             context = context,
@@ -189,7 +231,13 @@ class AudiobookCacheGenerator(
                             chapters = chapters
                         ) { progress ->
                             withContext(Main) {
-                                statusView.text = progress.formatForUser()
+                                markChapterProgress(
+                                    chapters = chapterStates,
+                                    readyCount = progress.readyChapters,
+                                    failedCount = progress.failedChapters,
+                                    running = !progress.isReady && progress.status != "failed"
+                                )
+                                statusView.text = progress.formatForUser(chapterStates)
                             }
                         }
                     }
@@ -199,6 +247,22 @@ class AudiobookCacheGenerator(
                 }
             } catch (e: Throwable) {
                 statusView.text = "有声书生成提交失败：${e.localizedMessage ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    private fun collectChapterPreview(
+        bookUrl: String,
+        startIndex: Int,
+        submitCount: Int
+    ): List<ChapterUiState> {
+        return (startIndex until startIndex + submitCount).mapNotNull { index ->
+            appDb.bookChapterDao.getChapter(bookUrl, index)?.let {
+                ChapterUiState(
+                    chapterIndex = index,
+                    title = it.title,
+                    state = "待生成"
+                )
             }
         }
     }
@@ -267,7 +331,8 @@ class AudiobookCacheGenerator(
 
     private suspend fun pollStatus(
         taskId: String,
-        statusView: TextView
+        statusView: TextView,
+        chapterStates: MutableList<ChapterUiState>
     ) {
         try {
             repeat(300) {
@@ -275,7 +340,13 @@ class AudiobookCacheGenerator(
                 val status = withContext(IO) {
                     TtsServerDbBridge.queryAudiobookGeneration(context, taskId).getOrThrow()
                 }
-                statusView.text = status.formatForUser()
+                markChapterProgress(
+                    chapters = chapterStates,
+                    readyCount = status.readyChapters,
+                    failedCount = status.failedChapters,
+                    running = !status.isFinished
+                )
+                statusView.text = status.formatForUser(chapterStates)
                 if (status.isFinished) {
                     if (status.status.equals("ready", true) || status.status.equals("completed", true)) {
                         context.toastOnUi("有声书缓存已生成")
@@ -283,17 +354,19 @@ class AudiobookCacheGenerator(
                     return
                 }
             }
-            statusView.text = "TTS 任务仍在运行，已停止本窗口轮询。\n任务 ID：$taskId"
+            statusView.text = formatGenerationStatus(
+                header = "TTS 任务仍在运行，已停止本窗口轮询。",
+                chapters = chapterStates,
+                footer = "任务 ID：$taskId"
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            statusView.text = buildString {
-                append("TTS 已接收任务，但无法查询真实缓存进度。")
-                append("\n任务 ID：")
-                append(taskId)
-                append("\n原因：")
-                append(e.localizedMessage ?: e.javaClass.simpleName)
-            }
+            statusView.text = formatGenerationStatus(
+                header = "TTS 已接收任务，但无法查询真实缓存进度。",
+                chapters = chapterStates,
+                footer = "任务 ID：$taskId\n原因：${e.localizedMessage ?: e.javaClass.simpleName}"
+            )
         }
     }
 
@@ -308,7 +381,9 @@ class AudiobookCacheGenerator(
         }
     }
 
-    private fun TtsServerDbBridge.AudiobookTaskStatus.formatForUser(): String {
+    private fun TtsServerDbBridge.AudiobookTaskStatus.formatForUser(
+        chapters: List<ChapterUiState>
+    ): String {
         val statusName = when (status.lowercase()) {
             "pending" -> "等待中"
             "analyzing" -> "朗读规则分析中"
@@ -319,11 +394,12 @@ class AudiobookCacheGenerator(
             "cancelled", "canceled" -> "已取消"
             else -> status
         }
-        return buildString {
-            append("状态：")
-            append(statusName)
+        return formatGenerationStatus(
+            header = "状态：$statusName",
+            chapters = chapters,
+            footer = buildString {
             if (totalChapters > 0) {
-                append("\n章节：")
+                append("章节：")
                 append(readyChapters)
                 append("/")
                 append(totalChapters)
@@ -333,7 +409,8 @@ class AudiobookCacheGenerator(
                 }
             }
             if (totalItems > 0) {
-                append("\n句子音频：")
+                if (isNotEmpty()) append("\n")
+                append("句子音频：")
                 append(readyItems)
                 append("/")
                 append(totalItems)
@@ -343,13 +420,15 @@ class AudiobookCacheGenerator(
                 }
             }
             if (message.isNotBlank()) {
-                append("\n\n")
+                if (isNotEmpty()) append("\n\n")
                 append(message)
             }
-        }
+        })
     }
 
-    private fun LocalAudiobookFileGenerator.Progress.formatForUser(): String {
+    private fun LocalAudiobookFileGenerator.Progress.formatForUser(
+        chapters: List<ChapterUiState>
+    ): String {
         val statusName = when (status.lowercase()) {
             "pending" -> "等待中"
             "caching_audio" -> "正在生成整章音频"
@@ -358,11 +437,12 @@ class AudiobookCacheGenerator(
             "cancelled", "canceled" -> "已取消"
             else -> status
         }
-        return buildString {
-            append("状态：")
-            append(statusName)
+        return formatGenerationStatus(
+            header = "状态：$statusName",
+            chapters = chapters,
+            footer = buildString {
             if (totalChapters > 0) {
-                append("\n章节：")
+                append("章节：")
                 append(readyChapters)
                 append("/")
                 append(totalChapters)
@@ -372,7 +452,8 @@ class AudiobookCacheGenerator(
                 }
             }
             if (totalItems > 0) {
-                append("\n音频片段：")
+                if (isNotEmpty()) append("\n")
+                append("音频片段：")
                 append(readyItems)
                 append("/")
                 append(totalItems)
@@ -382,13 +463,64 @@ class AudiobookCacheGenerator(
                 }
             }
             if (lastFilePath.isNotBlank()) {
-                append("\n最近文件：")
+                if (isNotEmpty()) append("\n")
+                append("最近文件：")
                 append(lastFilePath)
             }
             if (message.isNotBlank()) {
-                append("\n\n")
+                if (isNotEmpty()) append("\n\n")
                 append(message)
             }
+        })
+    }
+
+    private data class ChapterUiState(
+        val chapterIndex: Int,
+        val title: String,
+        var state: String
+    )
+
+    private fun markChapterProgress(
+        chapters: MutableList<ChapterUiState>,
+        readyCount: Int,
+        failedCount: Int,
+        running: Boolean
+    ) {
+        val safeReady = readyCount.coerceIn(0, chapters.size)
+        val safeFailed = failedCount.coerceIn(0, chapters.size - safeReady)
+        chapters.forEachIndexed { index, chapter ->
+            chapter.state = when {
+                index < safeReady -> "已生成"
+                index < safeReady + safeFailed -> "生成失败"
+                running && index == safeReady + safeFailed -> "生成中"
+                else -> "等待生成"
+            }
+        }
+    }
+
+    private fun formatGenerationStatus(
+        header: String,
+        chapters: List<ChapterUiState>,
+        footer: String
+    ): String {
+        return buildString {
+            append(header)
+            if (chapters.isNotEmpty()) {
+                append("\n\n章节队列：\n")
+                append(formatChapterQueue(chapters))
+            }
+            if (footer.isNotBlank()) {
+                append("\n\n")
+                append(footer)
+            }
+        }
+    }
+
+    private fun formatChapterQueue(chapters: List<ChapterUiState>): String {
+        return chapters.joinToString(separator = "\n") { chapter ->
+            val number = (chapter.chapterIndex + 1).toString().padStart(2, '0')
+            val title = chapter.title.ifBlank { "未命名章节" }
+            "$number. 第 ${chapter.chapterIndex + 1} 章 $title：${chapter.state}"
         }
     }
 }
