@@ -9,6 +9,7 @@ import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookSource
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.TtsServerDbBridge
+import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.book.isLocal
@@ -20,6 +21,7 @@ import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -65,6 +67,17 @@ class AudiobookCacheGenerator(
         val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
         val submitCount = (chapterCount - safeStartIndex).coerceAtMost(preloadCount + 1)
         val startTitle = appDb.bookChapterDao.getChapter(book.bookUrl, safeStartIndex)?.title.orEmpty()
+        val useTtsServer = LocalAudiobookFileGenerator.shouldUseTtsServerBridge()
+        val targetDesc = if (useTtsServer) {
+            "本次会提交 $submitCount 章给 TTS 缓存工厂。"
+        } else {
+            "本次会由开源阅读调用当前朗读引擎生成 $submitCount 章整章音频。"
+        }
+        val statusDesc = if (useTtsServer) {
+            "完成状态以 TTS 端实际缓存队列返回为准。"
+        } else {
+            "完成后会在阅读 App 文件目录生成每章一个完整音频文件。"
+        }
 
         AlertDialog.Builder(context)
             .setTitle("生成有声书缓存")
@@ -72,8 +85,8 @@ class AudiobookCacheGenerator(
                 "书名：${book.name}\n" +
                         "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
                         "生成范围：当前章 + 后面 $preloadCount 章\n" +
-                        "本次会提交 $submitCount 章给 TTS 缓存工厂。\n\n" +
-                        "完成状态以 TTS 端实际缓存队列返回为准。"
+                        "$targetDesc\n\n" +
+                        statusDesc
             )
             .setPositiveButton("开始生成") { _, _ ->
                 start(
@@ -144,26 +157,46 @@ class AudiobookCacheGenerator(
                     preloadCount = preloadCount,
                     currentChapterText = currentChapterText
                 )
-                statusView.text = "已准备 ${chapters.size} 章正文，正在提交 TTS 缓存工厂..."
-                val submit = withContext(IO) {
-                    TtsServerDbBridge.submitAudiobookGeneration(
-                        context = context,
-                        bookName = fullBook.name,
-                        bookUrl = fullBook.bookUrl,
-                        author = fullBook.author,
-                        origin = fullBook.origin,
-                        startChapterIndex = startIndex,
-                        preloadCount = preloadCount,
-                        chapters = chapters
-                    ).getOrThrow()
+                if (LocalAudiobookFileGenerator.shouldUseTtsServerBridge()) {
+                    statusView.text = "已准备 ${chapters.size} 章正文，正在提交 TTS 缓存工厂..."
+                    val submit = withContext(IO) {
+                        TtsServerDbBridge.submitAudiobookGeneration(
+                            context = context,
+                            bookName = fullBook.name,
+                            bookUrl = fullBook.bookUrl,
+                            author = fullBook.author,
+                            origin = fullBook.origin,
+                            startChapterIndex = startIndex,
+                            preloadCount = preloadCount,
+                            chapters = chapters
+                        ).getOrThrow()
+                    }
+                    taskId = submit.taskId
+                    if (submit.taskId.isBlank()) {
+                        statusView.text = noTaskIdMessage(submit)
+                        return@launch
+                    }
+                    statusView.text = "TTS 已接收 ${submit.acceptedChapters} 章，正在等待缓存进度..."
+                    pollStatus(submit.taskId, statusView)
+                } else {
+                    taskId = null
+                    statusView.text = "已准备 ${chapters.size} 章正文，阅读端正在生成整章音频..."
+                    val final = withContext(IO) {
+                        LocalAudiobookFileGenerator.generate(
+                            context = context,
+                            bookName = fullBook.name,
+                            bookUrl = fullBook.bookUrl,
+                            chapters = chapters
+                        ) { progress ->
+                            withContext(Main) {
+                                statusView.text = progress.formatForUser()
+                            }
+                        }
+                    }
+                    if (final.isReady) {
+                        context.toastOnUi("有声书章节音频已生成")
+                    }
                 }
-                taskId = submit.taskId
-                if (submit.taskId.isBlank()) {
-                    statusView.text = noTaskIdMessage(submit)
-                    return@launch
-                }
-                statusView.text = "TTS 已接收 ${submit.acceptedChapters} 章，正在等待缓存进度..."
-                pollStatus(submit.taskId, statusView)
             } catch (e: Throwable) {
                 statusView.text = "有声书生成提交失败：${e.localizedMessage ?: e.javaClass.simpleName}"
             }
@@ -308,6 +341,49 @@ class AudiobookCacheGenerator(
                     append("，失败 ")
                     append(failedItems)
                 }
+            }
+            if (message.isNotBlank()) {
+                append("\n\n")
+                append(message)
+            }
+        }
+    }
+
+    private fun LocalAudiobookFileGenerator.Progress.formatForUser(): String {
+        val statusName = when (status.lowercase()) {
+            "pending" -> "等待中"
+            "caching_audio" -> "正在生成整章音频"
+            "ready", "completed" -> "音频已完成"
+            "failed" -> "生成失败"
+            "cancelled", "canceled" -> "已取消"
+            else -> status
+        }
+        return buildString {
+            append("状态：")
+            append(statusName)
+            if (totalChapters > 0) {
+                append("\n章节：")
+                append(readyChapters)
+                append("/")
+                append(totalChapters)
+                if (failedChapters > 0) {
+                    append("，失败 ")
+                    append(failedChapters)
+                }
+            }
+            if (totalItems > 0) {
+                append("\n音频片段：")
+                append(readyItems)
+                append("/")
+                append(totalItems)
+                if (failedItems > 0) {
+                    append("，失败 ")
+                    append(failedItems)
+                }
+            }
+            if (lastFilePath.isNotBlank()) {
+                append("\n最近文件：")
+                append(lastFilePath)
             }
             if (message.isNotBlank()) {
                 append("\n\n")
