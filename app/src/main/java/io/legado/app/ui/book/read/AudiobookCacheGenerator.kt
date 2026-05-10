@@ -189,10 +189,6 @@ class AudiobookCacheGenerator(
             return "当前缓存窗口没有可查询章节。"
         }
 
-        if (LocalAudiobookFileGenerator.shouldUseTtsServerBridge()) {
-            return buildTtsServerStatusText(chapters, preloadCount)
-        }
-
         val snapshots = chapters.map { chapter ->
             chapter to LocalAudiobookFileGenerator.inspectChapterStatus(
                 context = context,
@@ -207,14 +203,27 @@ class AudiobookCacheGenerator(
         val readyCount = snapshots.count { (_, status) -> status.status.isReadyStatus() }
         val failedCount = snapshots.count { (_, status) -> status.status.lowercase() == "failed" }
         val states = snapshots.map { (chapter, status) ->
-            chapter.copy(state = status.status.toChapterState())
+            chapter.copy(state = status.toChapterQueueState())
         }
+        val useTtsServer = LocalAudiobookFileGenerator.shouldUseTtsServerBridge()
 
         return formatGenerationStatus(
-            header = "生成模式：开源阅读本地整章合成\n生成范围：当前章 + 后面 $preloadCount 章",
+            header = buildString {
+                append(
+                    if (useTtsServer) {
+                        "生成模式：J.TTS 直连 + 阅读端整章音频"
+                    } else {
+                        "生成模式：开源阅读本地整章合成"
+                    }
+                )
+                append("\n生成范围：当前章 + 后面 ")
+                append(preloadCount)
+                append(" 章")
+                append("\n查询对象：每章一个完整音频文件")
+            },
             chapters = states,
             footer = buildString {
-                append("已生成：")
+                append("完整章节音频：")
                 append(readyCount)
                 append("/")
                 append(chapters.size)
@@ -227,14 +236,15 @@ class AudiobookCacheGenerator(
                     if (index > 0) append("\n")
                     append(formatChapterStatusDetail(chapter, status))
                 }
+                if (useTtsServer) {
+                    append("\n\nJ.TTS 缓存工厂状态：\n")
+                    append(buildTtsServerStatusSummary(chapters))
+                }
             }
         )
     }
 
-    private fun buildTtsServerStatusText(
-        chapters: List<ChapterUiState>,
-        preloadCount: Int
-    ): String {
+    private fun buildTtsServerStatusSummary(chapters: List<ChapterUiState>): String {
         val runningTaskId = taskId
         if (!runningTaskId.isNullOrBlank()) {
             return runCatching {
@@ -253,22 +263,43 @@ class AudiobookCacheGenerator(
                         "canceled"
                     )
                 )
-                status.formatForUser(states)
+                buildString {
+                    append("TTS 任务：")
+                    append(status.status.toChapterState())
+                    if (status.totalChapters > 0) {
+                        append("\n章节缓存：")
+                        append(status.readyChapters)
+                        append("/")
+                        append(status.totalChapters)
+                        if (status.failedChapters > 0) {
+                            append("，失败 ")
+                            append(status.failedChapters)
+                        }
+                    }
+                    if (status.totalItems > 0) {
+                        append("\n句子音频：")
+                        append(status.readyItems)
+                        append("/")
+                        append(status.totalItems)
+                        if (status.failedItems > 0) {
+                            append("，失败 ")
+                            append(status.failedItems)
+                        }
+                    }
+                    if (status.message.isNotBlank()) {
+                        append("\n")
+                        append(status.message)
+                    }
+                    append("\n\nTTS 端章节队列：\n")
+                    append(formatChapterQueue(states))
+                }
             }.getOrElse { error ->
-                formatGenerationStatus(
-                    header = "生成模式：J.TTS 缓存工厂\n生成范围：当前章 + 后面 $preloadCount 章",
-                    chapters = chapters.map { it.copy(state = "查询失败") },
-                    footer = "TTS 端状态查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
-                )
+                "TTS 端状态查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
             }
         }
 
-        return formatGenerationStatus(
-            header = "生成模式：J.TTS 缓存工厂\n生成范围：当前章 + 后面 $preloadCount 章",
-            chapters = chapters.map { it.copy(state = "等待 TTS 端状态") },
-            footer = "当前阅读端没有正在追踪的 J.TTS 任务 ID。\n" +
-                "如果已经生成过历史缓存，需要 J.TTS 端补充按书名/章节查询缓存状态接口后，这里才能直接显示每章真实状态。"
-        )
+        return "当前没有正在追踪的 J.TTS 任务 ID。\n" +
+                "上面的章节队列仍会显示开源阅读端已经合成好的完整 MP3/WAV 文件。"
     }
 
     private fun start(
@@ -685,6 +716,18 @@ class AudiobookCacheGenerator(
             "not_generated" -> "未生成"
             else -> ifBlank { "未知" }
         }
+    }
+
+    private fun LocalAudiobookFileGenerator.ChapterStatus.toChapterQueueState(): String {
+        if (status.isReadyStatus()) {
+            return when (format.lowercase()) {
+                "mp3" -> "已生成 MP3"
+                "wav" -> "已生成 WAV"
+                "audio" -> "已生成音频"
+                else -> "已生成"
+            }
+        }
+        return status.toChapterState()
     }
 
     private fun Long.formatFileSize(): String {
