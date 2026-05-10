@@ -296,6 +296,62 @@ object LocalAudiobookFileGenerator {
         ).also { onProgress(it) }
     }
 
+    suspend fun generateFinishedReadAloudChapter(
+        context: Context,
+        bookName: String,
+        bookUrl: String,
+        chapter: TtsServerDbBridge.AudiobookChapter,
+        preferredHttpTts: HttpTTS? = null,
+    ): ChapterStatus {
+        val appContext = context.applicationContext
+        val segments = splitSegments(chapter.chapterTitle, chapter.chapterText)
+        val result = if (preferredHttpTts != null) {
+            generateHttpChapter(
+                context = appContext,
+                bookName = bookName,
+                chapter = chapter,
+                segments = segments,
+                httpTts = preferredHttpTts,
+                onItemReady = {}
+            ) to preferredHttpTts.name.ifBlank { "HTTP TTS" }
+        } else {
+            when (val plan = resolveEnginePlan()) {
+                is EnginePlan.Http -> generateHttpChapter(
+                    context = appContext,
+                    bookName = bookName,
+                    chapter = chapter,
+                    segments = segments,
+                    httpTts = plan.httpTTS,
+                    onItemReady = {}
+                ) to plan.displayName
+
+                is EnginePlan.System -> generateSystemChapter(
+                    context = appContext,
+                    bookName = bookName,
+                    chapter = chapter,
+                    segments = segments,
+                    engine = plan.engine,
+                    onItemReady = {}
+                ) to plan.displayName
+
+                EnginePlan.TtsServer -> error("J.TTS 直通引擎请从朗读服务传入当前 HTTP TTS 缓存")
+            }
+        }
+
+        writeManifest(
+            context = appContext,
+            bookName = bookName,
+            bookUrl = bookUrl,
+            chapter = chapter,
+            engineName = result.second,
+            status = "ready",
+            file = result.first.file,
+            error = "",
+            items = result.first.items
+        )
+        return inspectChapterStatus(appContext, bookName, chapter)
+    }
+
     private fun resolveEnginePlan(): EnginePlan {
         val ttsEngine = ReadAloud.ttsEngine
         if (!ttsEngine.isNullOrBlank() && StringUtils.isNumeric(ttsEngine)) {

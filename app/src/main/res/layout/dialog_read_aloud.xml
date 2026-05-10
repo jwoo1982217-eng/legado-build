@@ -212,11 +212,22 @@
 
         <io.legado.app.lib.theme.view.ThemeSwitch
             android:id="@+id/cb_audio_preload"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:contentDescription="后台预缓存"
             android:text="后台预缓存"
             tools:ignore="TouchTargetSizeCheck" />
+
+        <io.legado.app.lib.theme.view.ThemeSwitch
+            android:id="@+id/cb_audiobook_auto_merge"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:contentDescription="读完合成"
+            android:text="读完合成"
+            tools:ignore="HardcodedText,TouchTargetSizeCheck" />
 
     </LinearLayout>
 

@@ -1001,6 +1001,10 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
         get() = appCtx.getPrefBoolean(PreferKey.audioPreloadEnabled, true)
         set(value) = appCtx.putPrefBoolean(PreferKey.audioPreloadEnabled, value)
 
+    var audiobookAutoMergeAfterRead: Boolean
+        get() = appCtx.getPrefBoolean(PreferKey.audiobookAutoMergeAfterRead, false)
+        set(value) = appCtx.putPrefBoolean(PreferKey.audiobookAutoMergeAfterRead, value)
+
     val audioPreDownloadNum: Int
         get() = appCtx.getPrefInt(PreferKey.audioPreDownloadNum, 10)
 

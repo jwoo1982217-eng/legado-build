@@ -149,6 +149,7 @@ class HttpReadAloudService : BaseReadAloudService(),
         if (nowSpeak < contentList.lastIndex) {
             nowSpeak++
         } else {
+            markChapterFinishedByPlayback()
             nextChapter()
         }
     }
@@ -620,6 +621,10 @@ class HttpReadAloudService : BaseReadAloudService(),
         ReadAloud.httpTTS?.let {
             startBackgroundPreload(it, ReadBook.durChapterIndex)
         }
+    }
+
+    override fun currentHttpTtsForAudiobookMerge(): HttpTTS? {
+        return ReadAloud.httpTTS
     }
 
     override fun onPlaybackStateChanged(playbackState: Int) {

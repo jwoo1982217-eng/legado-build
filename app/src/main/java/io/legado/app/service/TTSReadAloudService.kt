@@ -259,6 +259,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                 paragraphStartPos = 0
                 nowSpeak++
                 if (nowSpeak >= contentList.size) {
+                    markChapterFinishedByPlayback()
                     nextChapter()
                     return
                 }

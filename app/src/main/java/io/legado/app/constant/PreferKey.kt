@@ -286,4 +286,5 @@ object PreferKey {
     const val audioCacheCleanTime = "audioCacheCleanTime"
     const val audioPreDownloadNum = "audioPreDownloadNum"
     const val audioPreloadEnabled = "audioPreloadEnabled"
+    const val audiobookAutoMergeAfterRead = "audiobookAutoMergeAfterRead"
 }

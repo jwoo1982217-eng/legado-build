@@ -109,6 +109,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbTtsFollowSys.isChecked = requireContext().getPrefBoolean("ttsFollowSys", true)
         cbAiBgm.isChecked = AiBgMusic.enabled
         cbAudioPreload.isChecked = AppConfig.audioPreloadEnabled && AppConfig.audioPreDownloadNum > 0
+        cbAudiobookAutoMerge.isChecked = AppConfig.audiobookAutoMergeAfterRead
         upSpeakEngineSummary()
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
         upSeekTimer()
@@ -164,6 +165,15 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 toastOnUi("后台预缓存已开启，数量按听书预加载数量执行")
             } else {
                 toastOnUi("后台预缓存已暂停")
+            }
+        }
+
+        cbAudiobookAutoMerge.setOnCheckedChangeListener { _, isChecked ->
+            AppConfig.audiobookAutoMergeAfterRead = isChecked
+            if (isChecked) {
+                toastOnUi("已开启：朗读自然读完一章后自动合成整章音频")
+            } else {
+                toastOnUi("已关闭读完自动合成")
             }
         }
 

@@ -33,7 +33,11 @@ import io.legado.app.constant.IntentAction
 import io.legado.app.constant.NotificationId
 import io.legado.app.constant.PreferKey
 import io.legado.app.constant.Status
+import io.legado.app.data.entities.Book
+import io.legado.app.data.entities.HttpTTS
 import io.legado.app.help.MediaHelp
+import io.legado.app.help.TtsServerDbBridge
+import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.help.glide.ImageLoader
@@ -125,6 +129,7 @@ abstract class BaseReadAloudService : BaseService(),
     private var registeredPhoneStateListener = false
     private var dsJob: Job? = null
     private var upNotificationJob: Coroutine<*>? = null
+    private var chapterFinishedByPlayback = false
     private var cover: Bitmap =
         BitmapFactory.decodeResource(appCtx.resources, R.drawable.ic_launcher)
     var pageChanged = false
@@ -326,6 +331,12 @@ abstract class BaseReadAloudService : BaseService(),
     }
 
     abstract fun upSpeechRate(reset: Boolean = false)
+
+    protected fun markChapterFinishedByPlayback() {
+        chapterFinishedByPlayback = true
+    }
+
+    protected open fun currentHttpTtsForAudiobookMerge(): HttpTTS? = null
 
     fun upTtsProgress(progress: Int) {
         postEvent(EventBus.TTS_PROGRESS, progress)
@@ -689,6 +700,15 @@ abstract class BaseReadAloudService : BaseService(),
     }
 
     open fun nextChapter() {
+        val shouldMerge = chapterFinishedByPlayback
+        chapterFinishedByPlayback = false
+        if (shouldMerge) {
+            autoMergeFinishedChapterAudio(
+                book = ReadBook.book,
+                textChapter = ReadBook.curTextChapter,
+                preferredHttpTts = currentHttpTtsForAudiobookMerge()
+            )
+        }
         ReadBook.upReadTime()
         AppLog.putDebug("${ReadBook.curTextChapter?.chapter?.title} 朗读结束跳转下一章并朗读")
         resumeReadAloudInternal()
@@ -700,6 +720,40 @@ abstract class BaseReadAloudService : BaseService(),
                 ReadBook.durChapterIndex,
                 ReadBook.curTextChapter,
                 force = false
+            )
+        }
+    }
+
+    private fun autoMergeFinishedChapterAudio(
+        book: Book?,
+        textChapter: TextChapter?,
+        preferredHttpTts: HttpTTS?,
+    ) {
+        if (!AppConfig.audiobookAutoMergeAfterRead) return
+        val currentBook = book ?: return
+        val finishedChapter = textChapter ?: return
+        val chapterText = finishedChapter.getNeedReadAloud(0, false, 0).trim()
+        if (chapterText.isBlank()) return
+
+        execute(executeContext = IO) {
+            val status = LocalAudiobookFileGenerator.generateFinishedReadAloudChapter(
+                context = this@BaseReadAloudService,
+                bookName = currentBook.name,
+                bookUrl = currentBook.bookUrl,
+                chapter = TtsServerDbBridge.AudiobookChapter(
+                    chapterIndex = finishedChapter.chapter.index,
+                    chapterTitle = finishedChapter.chapter.title,
+                    chapterText = chapterText
+                ),
+                preferredHttpTts = preferredHttpTts
+            )
+            AppLog.putDebug(
+                "读完自动合成整章音频完成: ${currentBook.name} / ${finishedChapter.chapter.title} / ${status.format} / ${status.path}"
+            )
+        }.onError {
+            AppLog.put(
+                "读完自动合成整章音频失败: ${currentBook.name} / ${finishedChapter.chapter.title}\n${it.localizedMessage}",
+                it
             )
         }
     }
