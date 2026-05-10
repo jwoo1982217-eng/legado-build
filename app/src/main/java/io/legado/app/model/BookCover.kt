@@ -19,9 +19,12 @@ import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.Target
 import com.bumptech.glide.request.target.Target.SIZE_ORIGINAL
 import io.legado.app.R
+import io.legado.app.constant.AppPattern
 import io.legado.app.constant.PreferKey
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.BaseSource
 import io.legado.app.data.entities.Book
+import io.legado.app.data.entities.BookSource
 import io.legado.app.help.CacheManager
 import io.legado.app.help.DefaultData
 import io.legado.app.help.config.AppConfig
@@ -31,11 +34,18 @@ import io.legado.app.help.glide.OkHttpModelLoader
 import io.legado.app.model.analyzeRule.AnalyzeRule
 import io.legado.app.model.analyzeRule.AnalyzeRule.Companion.setCoroutineContext
 import io.legado.app.model.analyzeRule.AnalyzeUrl
+import io.legado.app.model.webBook.WebBook
+import io.legado.app.ui.config.otherConfig.OtherConfig
 import io.legado.app.utils.BitmapUtils
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.getPrefString
+import io.legado.app.utils.mapParallelSafe
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.withTimeoutOrNull
 import splitties.init.appCtx
 import java.io.File
 import kotlin.random.Random
@@ -256,6 +266,69 @@ object BookCover {
         analyzeRule.setContent(res.body)
         analyzeRule.setRedirectUrl(res.url)
         return analyzeRule.getString(config.coverRule, isUrl = true)
+    }
+
+    suspend fun smartSearchCover(book: Book): String? {
+        searchCover(book)?.takeIf { it.isNotBlank() }?.let { return it }
+        return searchCoverFromEnabledSources(book)
+    }
+
+    private suspend fun searchCoverFromEnabledSources(book: Book): String? {
+        val bookName = book.name.trim()
+        val bookAuthor = book.getRealAuthor().trim()
+        appDb.searchBookDao.getEnableHasCover(bookName, bookAuthor)
+            .firstOrNull { !it.coverUrl.isNullOrBlank() }
+            ?.coverUrl
+            ?.let { return it }
+
+        val sources = appDb.bookSourceDao.allEnabled
+            .filter { source ->
+                !source.searchUrl.isNullOrBlank()
+                    && !source.getSearchRule().coverUrl.isNullOrBlank()
+            }
+            .sortedWith(
+                compareBy<BookSource> {
+                    if (it.bookSourceUrl == book.origin) 0 else 1
+                }.thenBy { it.customOrder }
+            )
+        val concurrency = OtherConfig.threadCount.coerceIn(1, 8)
+        return sources.asFlow()
+            .mapParallelSafe(concurrency) { source ->
+                withTimeoutOrNull(20000L) {
+                    WebBook.searchBookAwait(
+                        source,
+                        bookName,
+                        filter = { name, author ->
+                            isSameCoverSearchBook(
+                                name = name,
+                                author = author,
+                                targetName = bookName,
+                                targetAuthor = bookAuthor
+                            )
+                        },
+                        shouldBreak = { it > 0 }
+                    ).firstOrNull { !it.coverUrl.isNullOrBlank() }?.also {
+                        appDb.searchBookDao.insert(it)
+                    }?.coverUrl
+                }
+            }
+            .filterNotNull()
+            .firstOrNull()
+    }
+
+    private fun isSameCoverSearchBook(
+        name: String,
+        author: String,
+        targetName: String,
+        targetAuthor: String
+    ): Boolean {
+        if (name.trim() != targetName) return false
+        if (targetAuthor.isBlank()) return true
+        val cleanAuthor = author.replace(AppPattern.authorRegex, "").trim()
+        if (cleanAuthor.isBlank()) return false
+        return cleanAuthor == targetAuthor
+            || cleanAuthor.contains(targetAuthor)
+            || targetAuthor.contains(cleanAuthor)
     }
 
     fun saveCoverRule(config: CoverRule) {

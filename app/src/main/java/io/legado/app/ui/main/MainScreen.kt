@@ -476,9 +476,9 @@ fun MainScreen(
                                 withContext(Dispatchers.IO) {
                                     val dbBook = appDb.bookDao.getBook(book.bookUrl)
                                         ?: book.toLightBook()
-                                    val coverUrl = BookCover.searchCover(dbBook)
+                                    val coverUrl = BookCover.smartSearchCover(dbBook)
                                     if (coverUrl.isNullOrBlank()) {
-                                        return@withContext "没有找到可用封面，请检查封面规则或书源搜索结果"
+                                        return@withContext "没有找到可用封面，请检查封面规则或已启用书源的搜索结果"
                                     }
                                     dbBook.customCoverUrl = coverUrl
                                     dbBook.save()
