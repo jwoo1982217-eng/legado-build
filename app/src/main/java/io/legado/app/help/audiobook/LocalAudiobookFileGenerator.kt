@@ -1,6 +1,7 @@
 package io.legado.app.help.audiobook
 
 import android.content.Context
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech
@@ -15,6 +16,7 @@ import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.utils.GSON
+import io.legado.app.utils.MD5Utils
 import io.legado.app.utils.StringUtils
 import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.splitNotBlank
@@ -26,6 +28,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.OutputStream
@@ -147,9 +150,9 @@ object LocalAudiobookFileGenerator {
                 }
             }
 
-            result.onSuccess { file ->
+            result.onSuccess { chapterResult ->
                 readyChapters += 1
-                lastFilePath = file.absolutePath
+                lastFilePath = chapterResult.file.absolutePath
                 writeManifest(
                     context = appContext,
                     bookName = bookName,
@@ -157,12 +160,13 @@ object LocalAudiobookFileGenerator {
                     chapter = chapter,
                     engineName = plan.displayName,
                     status = "ready",
-                    file = file,
-                    error = ""
+                    file = chapterResult.file,
+                    error = "",
+                    items = chapterResult.items
                 )
                 push(
                     status = "caching_audio",
-                    message = "已生成第 ${chapterPosition + 1}/${chapters.size} 章：${file.name}"
+                    message = "已生成第 ${chapterPosition + 1}/${chapters.size} 章：${chapterResult.file.name}"
                 )
             }.onFailure {
                 failedChapters += 1
@@ -175,7 +179,8 @@ object LocalAudiobookFileGenerator {
                     engineName = plan.displayName,
                     status = "failed",
                     file = null,
-                    error = it.localizedMessage ?: it.javaClass.simpleName
+                    error = it.localizedMessage ?: it.javaClass.simpleName,
+                    items = emptyList()
                 )
                 push(
                     status = "caching_audio",
@@ -228,19 +233,34 @@ object LocalAudiobookFileGenerator {
         segments: List<String>,
         httpTts: HttpTTS,
         onItemReady: suspend () -> Unit,
-    ): File {
-        val bytesList = mutableListOf<ByteArray>()
-        for (segment in segments) {
+    ): ChapterBuildResult {
+        val segmentDir = segmentDir(
+            context = context,
+            bookName = bookName,
+            chapter = chapter,
+            engineKey = "http_${httpTts.id}_${httpTts.url.hashCode()}"
+        )
+        val audioSegments = mutableListOf<AudioSegment>()
+        for ((index, segment) in segments.withIndex()) {
             currentCoroutineContext().ensureActive()
             val speakText = segment.replace(AppPattern.notReadAloudRegex, "")
             if (speakText.isBlank()) continue
-            bytesList += requestHttpAudio(httpTts, speakText)
+            audioSegments += obtainHttpSegment(
+                context = context,
+                segmentDir = segmentDir,
+                httpTts = httpTts,
+                chapterTitle = chapter.chapterTitle,
+                segmentIndex = index,
+                sourceText = segment,
+                speakText = speakText
+            )
             onItemReady()
         }
-        if (bytesList.isEmpty()) error("当前章节没有生成到可用音频片段")
+        if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
 
         val outDir = chapterDir(context, bookName)
         val baseName = chapterFileBaseName(chapter)
+        val bytesList = audioSegments.map { it.bytes }
         val outFile = when {
             bytesList.all { it.looksLikeMp3() } -> File(outDir, "$baseName.mp3").also {
                 it.outputStream().use { output ->
@@ -260,7 +280,7 @@ object LocalAudiobookFileGenerator {
         }
 
         if (outFile.length() <= 0) error("整章音频文件为空")
-        return outFile
+        return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
     }
 
     private suspend fun generateSystemChapter(
@@ -270,14 +290,18 @@ object LocalAudiobookFileGenerator {
         segments: List<String>,
         engine: String,
         onItemReady: suspend () -> Unit,
-    ): File {
+    ): ChapterBuildResult {
         val outDir = chapterDir(context, bookName)
-        val tempDir = File(outDir, ".tmp_${chapter.chapterIndex}_${System.currentTimeMillis()}")
-        if (!tempDir.exists()) tempDir.mkdirs()
+        val segmentDir = segmentDir(
+            context = context,
+            bookName = bookName,
+            chapter = chapter,
+            engineKey = "system_${engine.hashCode()}"
+        )
 
         val tts = createTextToSpeech(context, engine)
         try {
-            val files = mutableListOf<File>()
+            val audioSegments = mutableListOf<AudioSegment>()
             withContext(Main) {
                 tts.setSpeechRate((AppConfig.ttsSpeechRate + 5) / 10f)
             }
@@ -286,24 +310,77 @@ object LocalAudiobookFileGenerator {
                 currentCoroutineContext().ensureActive()
                 val speakText = segment.replace(AppPattern.notReadAloudRegex, "")
                 if (speakText.isBlank()) continue
-                val file = File(tempDir, "${index.toString().padStart(4, '0')}.wav")
-                synthesizeToFile(tts, speakText, file)
-                files += file
+                val cached = findSegmentCache(segmentDir, index, segment)
+                val file = cached ?: segmentCacheFile(segmentDir, index, segment, "wav")
+                if (cached == null) {
+                    synthesizeToFile(tts, speakText, file)
+                }
+                if (!file.exists() || file.length() <= 0) {
+                    error("系统 TTS 没有生成可用音频片段")
+                }
+                audioSegments += AudioSegment(
+                    index = index,
+                    text = segment,
+                    file = file,
+                    bytes = file.readBytes(),
+                    fromCache = cached != null
+                )
                 onItemReady()
             }
 
-            if (files.isEmpty()) error("当前章节没有生成到可用音频片段")
+            if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
             val outFile = File(outDir, "${chapterFileBaseName(chapter)}.wav")
-            writeMergedWav(files.map { it.readBytes() }, outFile)
+            writeMergedWav(audioSegments.map { it.bytes }, outFile)
             if (outFile.length() <= 0) error("整章音频文件为空")
-            return outFile
+            return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
         } finally {
             withContext(Main) {
                 tts.stop()
                 tts.shutdown()
             }
-            tempDir.deleteRecursively()
         }
+    }
+
+    private suspend fun obtainHttpSegment(
+        context: Context,
+        segmentDir: File,
+        httpTts: HttpTTS,
+        chapterTitle: String,
+        segmentIndex: Int,
+        sourceText: String,
+        speakText: String,
+    ): AudioSegment {
+        findSegmentCache(segmentDir, segmentIndex, sourceText)?.let { cached ->
+            return AudioSegment(
+                index = segmentIndex,
+                text = sourceText,
+                file = cached,
+                bytes = cached.readBytes(),
+                fromCache = true
+            )
+        }
+
+        findReadAloudHttpCache(context, httpTts, chapterTitle, sourceText)?.let { cached ->
+            val bytes = cached.readBytes()
+            val file = writeSegmentCache(segmentDir, segmentIndex, sourceText, bytes)
+            return AudioSegment(
+                index = segmentIndex,
+                text = sourceText,
+                file = file,
+                bytes = bytes,
+                fromCache = true
+            )
+        }
+
+        val bytes = requestHttpAudio(httpTts, speakText)
+        val file = writeSegmentCache(segmentDir, segmentIndex, sourceText, bytes)
+        return AudioSegment(
+            index = segmentIndex,
+            text = sourceText,
+            file = file,
+            bytes = bytes,
+            fromCache = false
+        )
     }
 
     private suspend fun requestHttpAudio(httpTts: HttpTTS, speakText: String): ByteArray {
@@ -380,7 +457,12 @@ object LocalAudiobookFileGenerator {
                         }
                     }
                 })
-                val result = tts.synthesizeToFile(text, Bundle(), file, utteranceId)
+                file.parentFile?.mkdirs()
+                val params = Bundle().apply {
+                    putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+                    putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+                }
+                val result = tts.synthesizeToFile(text, params, file, utteranceId)
                 if (result == TextToSpeech.ERROR && cont.isActive) {
                     cont.resumeWithException(NoStackTraceException("系统 TTS 不支持写入音频文件"))
                 }
@@ -388,6 +470,9 @@ object LocalAudiobookFileGenerator {
                     tts.stop()
                 }
             }
+        }
+        if (!file.exists() || file.length() <= 0) {
+            throw NoStackTraceException("系统 TTS 合成文件为空")
         }
     }
 
@@ -514,6 +599,14 @@ object LocalAudiobookFileGenerator {
             String(this, 8, 4, Charsets.US_ASCII) == "WAVE"
     }
 
+    private fun ByteArray.audioExtension(): String {
+        return when {
+            looksLikeMp3() -> "mp3"
+            looksLikeWav() -> "wav"
+            else -> "audio"
+        }
+    }
+
     private fun ByteArray.skipLeadingId3v2(): Int {
         if (size < 10) return 0
         if (this[0] != 'I'.code.toByte() || this[1] != 'D'.code.toByte() || this[2] != '3'.code.toByte()) return 0
@@ -561,6 +654,59 @@ object LocalAudiobookFileGenerator {
             .also { if (!it.exists()) it.mkdirs() }
     }
 
+    private fun segmentDir(
+        context: Context,
+        bookName: String,
+        chapter: TtsServerDbBridge.AudiobookChapter,
+        engineKey: String
+    ): File {
+        val dir = File(
+            chapterDir(context, bookName),
+            ".segments/${engineKey.safeFileName().ifBlank { "engine" }}/${chapterFileBaseName(chapter)}"
+        )
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    private fun segmentCacheBaseName(index: Int, sourceText: String): String {
+        return "${index.toString().padStart(4, '0')}_${MD5Utils.md5Encode16(sourceText)}"
+    }
+
+    private fun segmentCacheFile(dir: File, index: Int, sourceText: String, extension: String): File {
+        return File(dir, "${segmentCacheBaseName(index, sourceText)}.$extension")
+    }
+
+    private fun findSegmentCache(dir: File, index: Int, sourceText: String): File? {
+        val baseName = segmentCacheBaseName(index, sourceText)
+        return listOf("mp3", "wav", "audio")
+            .asSequence()
+            .map { File(dir, "$baseName.$it") }
+            .firstOrNull { it.exists() && it.length() > 0 }
+    }
+
+    private fun writeSegmentCache(dir: File, index: Int, sourceText: String, bytes: ByteArray): File {
+        if (!dir.exists()) dir.mkdirs()
+        val baseName = segmentCacheBaseName(index, sourceText)
+        listOf("mp3", "wav", "audio").forEach { File(dir, "$baseName.$it").delete() }
+        return File(dir, "$baseName.${bytes.audioExtension()}").also {
+            it.writeBytes(bytes)
+        }
+    }
+
+    private fun findReadAloudHttpCache(
+        context: Context,
+        httpTts: HttpTTS,
+        chapterTitle: String,
+        sourceText: String
+    ): File? {
+        val speechRate = AppConfig.speechRatePlay + 5
+        val fileName = MD5Utils.md5Encode16(chapterTitle) + "_" +
+            MD5Utils.md5Encode16("${httpTts.url}-|-$speechRate-|-$sourceText")
+        val baseDir = context.externalCacheDir ?: context.cacheDir
+        return File(baseDir, "httpTTS/$fileName.mp3")
+            .takeIf { it.exists() && it.length() > 0 }
+    }
+
     private fun chapterFileBaseName(chapter: TtsServerDbBridge.AudiobookChapter): String {
         return "${chapter.chapterIndex.toString().padStart(4, '0')}_${chapter.chapterTitle.safeFileName().ifBlank { "未命名章节" }}"
     }
@@ -574,6 +720,7 @@ object LocalAudiobookFileGenerator {
         status: String,
         file: File?,
         error: String,
+        items: List<ManifestItem>,
     ) {
         val dir = chapterDir(context, bookName)
         val manifest = JSONObject()
@@ -587,6 +734,20 @@ object LocalAudiobookFileGenerator {
             .put("format", file?.extension.orEmpty())
             .put("sizeBytes", file?.length() ?: 0L)
             .put("error", error)
+            .put("items", JSONArray().apply {
+                items.forEach { item ->
+                    put(JSONObject().apply {
+                        put("index", item.index)
+                        put("text", item.text)
+                        put("status", item.status)
+                        put("path", item.path)
+                        put("format", item.format)
+                        put("sizeBytes", item.sizeBytes)
+                        put("fromCache", item.fromCache)
+                        put("error", item.error)
+                    })
+                }
+            })
             .put("updatedAt", System.currentTimeMillis())
         File(dir, "${chapterFileBaseName(chapter)}.json")
             .writeText(manifest.toString(2), Charsets.UTF_8)
@@ -628,4 +789,41 @@ object LocalAudiobookFileGenerator {
                 bitsPerSample == other.bitsPerSample
         }
     }
+
+    private data class ChapterBuildResult(
+        val file: File,
+        val items: List<ManifestItem>,
+    )
+
+    private data class AudioSegment(
+        val index: Int,
+        val text: String,
+        val file: File,
+        val bytes: ByteArray,
+        val fromCache: Boolean,
+    ) {
+        fun toManifestItem(): ManifestItem {
+            return ManifestItem(
+                index = index,
+                text = text,
+                status = "ready",
+                path = file.absolutePath,
+                format = file.extension,
+                sizeBytes = file.length(),
+                fromCache = fromCache,
+                error = ""
+            )
+        }
+    }
+
+    private data class ManifestItem(
+        val index: Int,
+        val text: String,
+        val status: String,
+        val path: String,
+        val format: String,
+        val sizeBytes: Long,
+        val fromCache: Boolean,
+        val error: String,
+    )
 }

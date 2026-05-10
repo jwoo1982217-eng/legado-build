@@ -82,7 +82,7 @@ class AudiobookCacheGenerator(
         val targetDesc = if (useTtsServer) {
             "工作方式：把 $submitCount 章正文提交给 TTS，由 TTS 分析台词本、请求句子音频、生成章节缓存。"
         } else {
-            "工作方式：开源阅读调用当前朗读引擎，把句子音频合并成每章一个完整音频文件。"
+            "工作方式：开源阅读优先复用朗读缓存，缺失时调用当前朗读引擎，再把句子音频合并成每章一个完整音频文件。"
         }
         val statusDesc = if (useTtsServer) {
             "完成判断：以 TTS 端实际缓存队列结果为准。"
