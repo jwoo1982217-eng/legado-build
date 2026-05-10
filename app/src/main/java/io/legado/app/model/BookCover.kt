@@ -55,6 +55,13 @@ object BookCover {
 
     private const val coverRuleConfigKey = "legadoCoverRuleConfig"
     const val configFileName = "coverRule.json"
+    private val builtInCoverPaths = listOf(
+        "file:///android_asset/defaultData/covers/builtin_cover_01.png",
+        "file:///android_asset/defaultData/covers/builtin_cover_02.png",
+        "file:///android_asset/defaultData/covers/builtin_cover_03.png",
+        "file:///android_asset/defaultData/covers/builtin_cover_04.png",
+        "file:///android_asset/defaultData/covers/builtin_cover_05.png"
+    )
 
     val defaultDrawable: Drawable
         @SuppressLint("UseCompatLoadingForDrawables")
@@ -270,7 +277,15 @@ object BookCover {
 
     suspend fun smartSearchCover(book: Book): String? {
         searchCover(book)?.takeIf { it.isNotBlank() }?.let { return it }
-        return searchCoverFromEnabledSources(book)
+        searchCoverFromEnabledSources(book)?.takeIf { it.isNotBlank() }?.let { return it }
+        return searchCoverFromLocalLibrary(book)
+    }
+
+    private fun searchCoverFromLocalLibrary(book: Book): String? {
+        val seed = book.bookUrl.ifBlank { "${book.name}-${book.getRealAuthor()}" }
+        return getRandomDefaultPath(seed = seed, isNight = false)
+            ?: getRandomDefaultPath(seed = seed, isNight = true)
+            ?: builtInCoverPaths[Random(seed.hashCode()).nextInt(builtInCoverPaths.size)]
     }
 
     private suspend fun searchCoverFromEnabledSources(book: Book): String? {
