@@ -4,10 +4,15 @@ package io.legado.app.ui.book.read.config
 //import io.legado.app.lib.theme.getPrimaryTextColor
 import android.annotation.SuppressLint
 import android.content.DialogInterface
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.RadioButton
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -360,25 +365,75 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     private fun showScriptCharacters() {
         val analysis = ScriptBrain.analyzeCurrentChapter(requireContext())
-        val body = buildString {
-            appendLine("${analysis.chapterTitle}：共 ${analysis.characters.size} 个角色")
-            appendLine("来源：${analysis.source}")
-            appendLine("阅读端大脑：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
-            if (analysis.error.isNotBlank()) {
-                appendLine("提示：${analysis.error}")
-            }
-            appendLine()
-            if (analysis.characters.isEmpty()) {
-                appendLine("当前章暂未识别到明确角色。")
-                appendLine("台词本里可能会先显示“角色待定”，可先导入旧朗读规则再运行。")
-            } else {
-                analysis.characters.forEachIndexed { index, character ->
-                    appendLine("${index + 1}. ${character.name}")
-                    appendLine("   ${character.gender} / ${character.ageType} / ${character.voiceTag}")
+        AlertDialog.Builder(requireContext())
+            .setTitle("角色表")
+            .setView(scriptCharacterListView(analysis))
+            .setNegativeButton("运行当前章") { _, _ -> runScriptRuleForCurrentChapter() }
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun scriptCharacterListView(analysis: ScriptBrain.Analysis): ScrollView {
+        val context = requireContext()
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20.dpToPx(), 12.dpToPx(), 20.dpToPx(), 12.dpToPx())
+        }
+
+        fun addText(text: String, size: Float = 15f, bold: Boolean = false, color: Int = Color.rgb(45, 45, 45)) {
+            container.addView(TextView(context).apply {
+                this.text = text
+                textSize = size
+                setTextColor(color)
+                if (bold) typeface = Typeface.DEFAULT_BOLD
+                setPadding(0, 4.dpToPx(), 0, 4.dpToPx())
+            })
+        }
+
+        val info = ScriptBrain.importedRuleInfo(context)
+        addText("${analysis.chapterTitle}：角色列表（已标记 ${analysis.characters.size}）", 16f, true)
+        addText("来源：${analysis.source}，阅读端大脑：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭"}", 13f, color = Color.rgb(100, 100, 100))
+        if (info != null) {
+            addText("规则：${info.name} / ${if (info.isJson) "完整 JSON" else "JS"}", 13f, color = Color.rgb(100, 100, 100))
+        }
+        if (analysis.error.isNotBlank()) {
+            addText("提示：${analysis.error}", 13f, color = Color.rgb(180, 80, 40))
+        }
+
+        if (analysis.characters.isEmpty()) {
+            addText("当前章暂未识别到明确角色。可以先在“分析规则”导入完整朗读规则 JSON，再点“运行当前章”。", 15f)
+        } else {
+            analysis.characters.forEachIndexed { index, character ->
+                val selected = index == 0
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(14.dpToPx(), 10.dpToPx(), 10.dpToPx(), 10.dpToPx())
+                    background = GradientDrawable().apply {
+                        cornerRadius = 4.dpToPx().toFloat()
+                        setColor(if (selected) Color.rgb(255, 250, 190) else Color.TRANSPARENT)
+                        if (!selected) setStroke(1.dpToPx(), Color.rgb(230, 230, 230))
+                    }
                 }
+                val text = TextView(context).apply {
+                    this.text = "${character.name}    【${character.voiceTag}-${character.gender}-${character.ageType}】"
+                    textSize = 16f
+                    setTextColor(if (selected) Color.rgb(210, 90, 30) else Color.rgb(40, 40, 40))
+                    if (selected) typeface = Typeface.DEFAULT_BOLD
+                    setPadding(0, 0, 8.dpToPx(), 0)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                row.addView(text)
+                row.addView(RadioButton(context).apply {
+                    isChecked = selected
+                    isClickable = false
+                    isFocusable = false
+                })
+                container.addView(row)
             }
         }
-        showTextDialog("角色表", body)
+
+        addText("分析完成后会写入阅读端大脑目录，并更新这个角色列表。", 13f, color = Color.rgb(110, 110, 110))
+        return ScrollView(context).apply { addView(container) }
     }
 
     private fun showScriptPreview() {
@@ -426,8 +481,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     private fun showPasteScriptRuleDialog() {
         val editText = EditText(requireContext()).apply {
-            setText(ScriptBrain.loadImportedRule(requireContext()))
-            hint = "粘贴旧 TTS 朗读规则 JS，或包含 code 字段的规则 JSON"
+            setText(ScriptBrain.loadImportedRuleRaw(requireContext()))
+            hint = "粘贴完整朗读规则 JSON，或临时粘贴 JS 代码"
             minLines = 10
             maxLines = 18
             inputType = InputType.TYPE_CLASS_TEXT or
@@ -442,7 +497,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             .setPositiveButton("保存") { _, _ ->
                 runCatching {
                     ScriptBrain.saveImportedRule(requireContext(), editText.text?.toString().orEmpty())
-                    toastOnUi("朗读规则已保存")
+                    val info = ScriptBrain.importedRuleInfo(requireContext())
+                    toastOnUi("朗读规则已保存：${info?.name.orEmpty().ifBlank { "导入规则" }}")
                 }.onFailure {
                     toastOnUi("保存失败：${it.localizedMessage ?: it.javaClass.simpleName}")
                 }
@@ -494,14 +550,28 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun showImportedScriptRule() {
-        val rule = ScriptBrain.loadImportedRule(requireContext())
+        val rule = ScriptBrain.loadImportedRuleRaw(requireContext())
         if (rule.isBlank()) {
             toastOnUi("还没有导入朗读规则")
             return
         }
+        val info = ScriptBrain.importedRuleInfo(requireContext())
         showTextDialog(
             "已导入朗读规则",
-            "长度：${rule.length} 字符\n\n" + rule.take(12000) +
+            buildString {
+                if (info != null) {
+                    appendLine("名称：${info.name}")
+                    appendLine("作者：${info.author}")
+                    appendLine("版本：${info.version}")
+                    appendLine("格式：${if (info.isJson) "完整 JSON" else "JS 代码"}")
+                    appendLine("代码长度：${info.codeLength} 字符")
+                    appendLine("原始长度：${info.rawLength} 字符")
+                } else {
+                    appendLine("长度：${rule.length} 字符")
+                }
+                appendLine()
+                append(rule.take(12000))
+            } +
                     if (rule.length > 12000) "\n\n已截断显示前 12000 字符。" else ""
         )
     }
@@ -523,13 +593,13 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             当前是开源阅读端“大脑模块”第一版。
 
             已启用：
-            1. 可以粘贴导入旧 TTS 朗读规则 JS。
+            1. 可以粘贴导入完整旧 TTS 朗读规则 JSON，也兼容临时粘贴 JS。
             2. 可以运行当前章，调用 SpeechRuleJS.prepareChapterAudioQueue。
-            3. 运行结果会转换成台词本，后续缓存/请求音频应以这份队列为准。
+            3. 运行结果会转换成台词本，并更新角色表。
             4. 兼容 ttsrv.readTxtFile/writeTxtFile/httpGet/httpPost 的基础能力。
 
             当前限制：
-            1. 角色管理插件 UI 原样嵌入还没做。
+            1. 角色管理插件 UI 现在先做成阅读端角色列表，还不是完整原插件界面。
             2. 旧规则里如果依赖 TTS 私有 Android UI API，可能还会失败。
             3. 从 J.TTS 实时读取完整音色标签库还没接。
 
