@@ -132,21 +132,21 @@ class AudiobookCacheGenerator(
         val modeDesc = if (useTtsServer) {
             "生成模式：J.TTS 缓存工厂"
         } else {
-            "生成模式：开源阅读本地受保护 MP3"
+            "生成模式：开源阅读本地章节音频"
         }
         val targetDesc = if (useTtsServer) {
             "工作方式：把 $submitCount 章正文提交给 TTS，由 TTS 分析台词本、请求句子音频、生成章节缓存。"
         } else {
-            "工作方式：开源阅读优先复用朗读缓存，缺失时调用当前朗读引擎，再把句子音频合并成每章一个受保护 MP3 缓存。"
+            "工作方式：开源阅读优先复用朗读缓存，缺失时调用当前朗读引擎，把每句音频保存到章节目录；开启整章合并后再生成完整章节音频。"
         }
         val statusDesc = if (useTtsServer) {
             "完成判断：以 TTS 端实际缓存队列结果为准。"
         } else {
-            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。"
+            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。当前设置：整章合并=${if (AppConfig.audiobookAutoMergeAfterRead) "开" else "关"}，转为MP3=${if (AppConfig.audiobookConvertMergedToMp3) "开" else "关"}。"
         }
 
         AlertDialog.Builder(context)
-            .setTitle("立即生成受保护MP3")
+            .setTitle("立即生成章节音频")
             .setMessage(
                 "书名：${book.name}\n" +
                         "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
@@ -213,17 +213,17 @@ class AudiobookCacheGenerator(
                     if (useTtsServer) {
                         "生成模式：J.TTS 直连 + 阅读端整章音频"
                     } else {
-                        "生成模式：开源阅读本地受保护 MP3"
+                        "生成模式：开源阅读本地章节音频"
                     }
                 )
                 append("\n生成范围：当前章 + 后面 ")
                 append(preloadCount)
                 append(" 章")
-                append("\n查询对象：每章一个完整音频文件")
+                append("\n查询对象：句子片段 + 完整章节音频")
             },
             chapters = states,
             footer = buildString {
-                append("已合成章节：")
+                append("已完成章节：")
                 append(readyCount)
                 append("/")
                 append(chapters.size)
@@ -299,7 +299,7 @@ class AudiobookCacheGenerator(
         }
 
         return "当前没有正在追踪的 J.TTS 任务 ID。\n" +
-                "上面的章节队列仍会显示开源阅读端已经合成好的受保护 MP3 文件。"
+                "上面的章节队列仍会显示开源阅读端已经缓存的句子片段和完整章节音频。"
     }
 
     private fun start(
@@ -703,12 +703,13 @@ class AudiobookCacheGenerator(
     }
 
     private fun String.isReadyStatus(): Boolean {
-        return lowercase() in setOf("ready", "completed")
+        return lowercase() in setOf("ready", "completed", "segments_ready")
     }
 
     private fun String.toChapterState(): String {
         return when (lowercase()) {
             "ready", "completed" -> "已生成"
+            "segments_ready" -> "片段已缓存"
             "failed" -> "生成失败"
             "pending" -> "等待生成"
             "caching_audio" -> "生成中"
@@ -729,6 +730,7 @@ class AudiobookCacheGenerator(
                 else -> "已生成"
             }
         }
+        if (status.lowercase() == "segments_ready") return "片段已缓存"
         return status.toChapterState()
     }
 

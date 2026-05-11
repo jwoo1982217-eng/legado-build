@@ -121,6 +121,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAiBgm.isChecked = AiBgMusic.enabled
         cbAudioPreload.isChecked = AppConfig.audioPreloadEnabled && AppConfig.audioPreDownloadNum > 0
         cbAudiobookAutoMerge.isChecked = AppConfig.audiobookAutoMergeAfterRead
+        cbAudiobookConvertMp3.isChecked = AppConfig.audiobookConvertMergedToMp3
+        cbScriptBrainEnabled.isChecked = AppConfig.scriptBrainEnabled
         upSpeakEngineSummary()
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
         upSeekTimer()
@@ -139,6 +141,14 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
         btnAiBgmConfig.setOnClickListener {
             showAiBgMusicPlaybackConfig()
+        }
+        cbScriptBrainEnabled.setOnCheckedChangeListener { _, isChecked ->
+            AppConfig.scriptBrainEnabled = isChecked
+            if (isChecked) {
+                toastOnUi("阅读端大脑已开启")
+            } else {
+                toastOnUi("阅读端大脑已关闭，继续兼容 TTS 端朗读规则")
+            }
         }
         btnScriptCharacters.setOnClickListener { showScriptCharacters() }
         btnScriptPreview.setOnClickListener { showScriptPreview() }
@@ -188,9 +198,18 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAudiobookAutoMerge.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.audiobookAutoMergeAfterRead = isChecked
             if (isChecked) {
-                toastOnUi("已开启：读完章节后自动生成受保护MP3")
+                toastOnUi("整章合并已开启，读完章节后会合并完整音频")
             } else {
-                toastOnUi("已关闭受保护MP3自动生成")
+                toastOnUi("整章合并已关闭，只保留句子片段")
+            }
+        }
+
+        cbAudiobookConvertMp3.setOnCheckedChangeListener { _, isChecked ->
+            AppConfig.audiobookConvertMergedToMp3 = isChecked
+            if (isChecked) {
+                toastOnUi("已开启：完整章节音频统一转为 MP3")
+            } else {
+                toastOnUi("已关闭 MP3 转换，尽量保留原音频格式")
             }
         }
 
@@ -344,6 +363,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         val body = buildString {
             appendLine("${analysis.chapterTitle}：共 ${analysis.characters.size} 个角色")
             appendLine("来源：${analysis.source}")
+            appendLine("阅读端大脑：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
             if (analysis.error.isNotBlank()) {
                 appendLine("提示：${analysis.error}")
             }
@@ -367,6 +387,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             appendLine("${analysis.chapterTitle}")
             appendLine("台词行：${analysis.lines.size}，角色：${analysis.characters.size}")
             appendLine("来源：${analysis.source}")
+            appendLine("阅读端大脑：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
             if (analysis.error.isNotBlank()) {
                 appendLine("提示：${analysis.error}")
             }

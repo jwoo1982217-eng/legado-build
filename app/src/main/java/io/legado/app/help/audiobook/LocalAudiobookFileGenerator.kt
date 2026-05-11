@@ -79,9 +79,12 @@ object LocalAudiobookFileGenerator {
         bookName: String,
         chapter: TtsServerDbBridge.AudiobookChapter
     ): ChapterStatus {
-        val dir = chapterDir(context.applicationContext, bookName)
+        val dir = chapterDir(context.applicationContext, bookName, chapter)
         val baseName = chapterFileBaseName(chapter)
-        val manifestFile = File(dir, "$baseName.json")
+        val manifestFile = listOf(
+            File(dir, "manifest.json"),
+            File(bookDir(context.applicationContext, bookName), "$baseName.json")
+        ).firstOrNull { it.exists() && it.length() > 0 } ?: File(dir, "manifest.json")
         if (manifestFile.exists() && manifestFile.length() > 0) {
             return runCatching {
                 val json = JSONObject(manifestFile.readText(Charsets.UTF_8))
@@ -123,7 +126,12 @@ object LocalAudiobookFileGenerator {
 
         val audioFile = listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio")
             .asSequence()
-            .map { File(dir, "$baseName.$it") }
+            .flatMap { extension ->
+                sequenceOf(
+                    File(dir, "chapter.$extension"),
+                    File(bookDir(context.applicationContext, bookName), "$baseName.$extension")
+                )
+            }
             .firstOrNull { it.exists() && it.length() > 0 }
         if (audioFile != null) {
             return ChapterStatus(
@@ -246,21 +254,26 @@ object LocalAudiobookFileGenerator {
 
             result.onSuccess { chapterResult ->
                 readyChapters += 1
-                lastFilePath = chapterResult.file.absolutePath
+                lastFilePath = chapterResult.file?.absolutePath
+                    ?: chapterResult.items.firstOrNull()?.path.orEmpty()
                 writeManifest(
                     context = appContext,
                     bookName = bookName,
                     bookUrl = bookUrl,
                     chapter = chapter,
                     engineName = plan.displayName,
-                    status = "ready",
+                    status = chapterResult.status,
                     file = chapterResult.file,
                     error = "",
                     items = chapterResult.items
                 )
                 push(
                     status = "caching_audio",
-                    message = "已生成第 ${chapterPosition + 1}/${chapters.size} 章：${chapterResult.file.name}"
+                    message = if (chapterResult.file != null) {
+                        "已生成第 ${chapterPosition + 1}/${chapters.size} 章：${chapterResult.file.name}"
+                    } else {
+                        "已缓存第 ${chapterPosition + 1}/${chapters.size} 章句子片段"
+                    }
                 )
             }.onFailure {
                 failedChapters += 1
@@ -352,7 +365,7 @@ object LocalAudiobookFileGenerator {
             bookUrl = bookUrl,
             chapter = chapter,
             engineName = result.second,
-            status = "ready",
+            status = result.first.status,
             file = result.first.file,
             error = "",
             items = result.first.items
@@ -412,23 +425,7 @@ object LocalAudiobookFileGenerator {
         }
         if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
 
-        val outDir = chapterDir(context, bookName)
-        val baseName = chapterFileBaseName(chapter)
-        val bytesList = audioSegments.map { it.bytes }
-        val outFile = chapterProtectedOutputFile(outDir, baseName)
-        val tempMp3 = chapterTempMp3File(outFile, baseName)
-        when {
-            bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, tempMp3)
-            bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, tempMp3, baseName)
-            else -> encodeSegmentFilesToMp3(audioSegments, tempMp3, baseName)
-        }
-        try {
-            ProtectedAudiobookFile.protectMp3(context, tempMp3, outFile)
-        } finally {
-            tempMp3.delete()
-        }
-
-        if (outFile.length() <= 0) error("章节音频文件为空")
+        val outFile = buildChapterAudioFile(context, bookName, chapter, audioSegments)
         return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
     }
 
@@ -440,7 +437,6 @@ object LocalAudiobookFileGenerator {
         engine: String,
         onItemReady: suspend () -> Unit,
     ): ChapterBuildResult {
-        val outDir = chapterDir(context, bookName)
         val segmentDir = segmentDir(
             context = context,
             bookName = bookName,
@@ -478,16 +474,7 @@ object LocalAudiobookFileGenerator {
             }
 
             if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
-            val baseName = chapterFileBaseName(chapter)
-            val outFile = chapterProtectedOutputFile(outDir, baseName)
-            val tempMp3 = chapterTempMp3File(outFile, baseName)
-            encodeWavSegmentsToMp3(audioSegments.map { it.bytes }, tempMp3, baseName)
-            try {
-                ProtectedAudiobookFile.protectMp3(context, tempMp3, outFile)
-            } finally {
-                tempMp3.delete()
-            }
-            if (outFile.length() <= 0) error("章节音频文件为空")
+            val outFile = buildChapterAudioFile(context, bookName, chapter, audioSegments)
             return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
         } finally {
             withContext(Main) {
@@ -655,12 +642,56 @@ object LocalAudiobookFileGenerator {
         return result
     }
 
-    private fun chapterProtectedOutputFile(outDir: File, baseName: String): File {
+    private fun buildChapterAudioFile(
+        context: Context,
+        bookName: String,
+        chapter: TtsServerDbBridge.AudiobookChapter,
+        audioSegments: List<AudioSegment>,
+    ): File? {
+        if (!AppConfig.audiobookAutoMergeAfterRead) return null
+        val outDir = chapterDir(context, bookName, chapter)
+        val baseName = chapterFileBaseName(chapter)
+        val bytesList = audioSegments.map { it.bytes }
+
+        return if (AppConfig.audiobookConvertMergedToMp3) {
+            val outFile = chapterOutputFile(outDir, "mp3")
+            when {
+                bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, outFile)
+                bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, outFile, baseName)
+                else -> encodeSegmentFilesToMp3(audioSegments, outFile, baseName)
+            }
+            outFile
+        } else {
+            when {
+                bytesList.all { it.looksLikeMp3() } -> {
+                    val outFile = chapterOutputFile(outDir, "mp3")
+                    writeConcatenatedMp3(bytesList, outFile)
+                    outFile
+                }
+
+                bytesList.all { it.looksLikeWav() } -> {
+                    val outFile = chapterOutputFile(outDir, "wav")
+                    writeMergedWav(bytesList, outFile)
+                    outFile
+                }
+
+                else -> {
+                    val outFile = chapterOutputFile(outDir, "mp3")
+                    encodeSegmentFilesToMp3(audioSegments, outFile, baseName)
+                    outFile
+                }
+            }
+        }.also { file ->
+            if (file.length() <= 0) error("章节音频文件为空")
+        }
+    }
+
+    private fun chapterOutputFile(outDir: File, extension: String): File {
         if (!outDir.exists()) outDir.mkdirs()
         listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio").forEach { extension ->
-            File(outDir, "$baseName.$extension").delete()
+            File(outDir, "chapter.$extension").delete()
         }
-        return File(outDir, "$baseName.${ProtectedAudiobookFile.EXTENSION}")
+        return File(outDir, "chapter.$extension")
     }
 
     private fun chapterTempMp3File(outFile: File, baseName: String): File {
@@ -914,10 +945,19 @@ object LocalAudiobookFileGenerator {
         return ByteBuffer.wrap(this, offset, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xFFFF
     }
 
-    private fun chapterDir(context: Context, bookName: String): File {
+    private fun bookDir(context: Context, bookName: String): File {
         val root = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
             ?: File(context.filesDir, "audiobook")
         return File(root, "阅读有声书/${bookName.safeFileName().ifBlank { "默认" }}")
+            .also { if (!it.exists()) it.mkdirs() }
+    }
+
+    private fun chapterDir(
+        context: Context,
+        bookName: String,
+        chapter: TtsServerDbBridge.AudiobookChapter
+    ): File {
+        return File(bookDir(context, bookName), chapterFileBaseName(chapter))
             .also { if (!it.exists()) it.mkdirs() }
     }
 
@@ -928,8 +968,8 @@ object LocalAudiobookFileGenerator {
         engineKey: String
     ): File {
         val dir = File(
-            chapterDir(context, bookName),
-            ".segments/${engineKey.safeFileName().ifBlank { "engine" }}/${chapterFileBaseName(chapter)}"
+            chapterDir(context, bookName, chapter),
+            "segments/${engineKey.safeFileName().ifBlank { "engine" }}"
         )
         if (!dir.exists()) dir.mkdirs()
         return dir
@@ -989,7 +1029,7 @@ object LocalAudiobookFileGenerator {
         error: String,
         items: List<ManifestItem>,
     ) {
-        val dir = chapterDir(context, bookName)
+        val dir = chapterDir(context, bookName, chapter)
         val manifest = JSONObject()
             .put("bookName", bookName)
             .put("bookUrl", bookUrl)
@@ -997,6 +1037,8 @@ object LocalAudiobookFileGenerator {
             .put("chapterTitle", chapter.chapterTitle)
             .put("engine", engineName)
             .put("status", status)
+            .put("mergeChapterAudio", AppConfig.audiobookAutoMergeAfterRead)
+            .put("convertMergedToMp3", AppConfig.audiobookConvertMergedToMp3)
             .put("path", file?.absolutePath.orEmpty())
             .put("format", file?.chapterAudioFormat().orEmpty())
             .put("sizeBytes", file?.length() ?: 0L)
@@ -1016,7 +1058,7 @@ object LocalAudiobookFileGenerator {
                 }
             })
             .put("updatedAt", System.currentTimeMillis())
-        File(dir, "${chapterFileBaseName(chapter)}.json")
+        File(dir, "manifest.json")
             .writeText(manifest.toString(2), Charsets.UTF_8)
     }
 
@@ -1058,9 +1100,11 @@ object LocalAudiobookFileGenerator {
     }
 
     private data class ChapterBuildResult(
-        val file: File,
+        val file: File?,
         val items: List<ManifestItem>,
-    )
+    ) {
+        val status: String get() = if (file == null) "segments_ready" else "ready"
+    }
 
     private data class AudioSegment(
         val index: Int,

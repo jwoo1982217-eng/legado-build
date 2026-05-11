@@ -276,8 +276,14 @@ object BookCover {
     }
 
     suspend fun smartSearchCover(book: Book): String? {
-        searchCover(book)?.takeIf { it.isNotBlank() }?.let { return it }
-        searchCoverFromEnabledSources(book)?.takeIf { it.isNotBlank() }?.let { return it }
+        runCatching { searchCover(book) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        runCatching { searchCoverFromEnabledSources(book) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
         return searchCoverFromLocalLibrary(book)
     }
 
