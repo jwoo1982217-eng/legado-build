@@ -182,9 +182,9 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAudiobookAutoMerge.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.audiobookAutoMergeAfterRead = isChecked
             if (isChecked) {
-                toastOnUi("已开启：朗读自然读完一章后自动合成整章音频")
+                toastOnUi("已开启：读完章节后自动生成受保护MP3")
             } else {
-                toastOnUi("已关闭读完自动合成")
+                toastOnUi("已关闭受保护MP3自动生成")
             }
         }
 

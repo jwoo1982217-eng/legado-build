@@ -146,7 +146,7 @@ class AudiobookCacheGenerator(
         }
 
         AlertDialog.Builder(context)
-            .setTitle("生成受保护MP3")
+            .setTitle("立即生成受保护MP3")
             .setMessage(
                 "书名：${book.name}\n" +
                         "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
