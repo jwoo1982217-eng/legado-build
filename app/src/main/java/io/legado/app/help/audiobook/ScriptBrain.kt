@@ -577,16 +577,16 @@ object ScriptBrain {
             else -> ""
         }
         val ageType = when {
-            voiceTag.contains("女童") || voiceTag.contains("幼女") || voiceTag.contains("女孩") -> "女童"
-            voiceTag.contains("男童") || voiceTag.contains("男孩") -> "男童"
-            voiceTag.contains("女老年") -> "女老年"
-            voiceTag.contains("男老年") -> "男老年"
-            voiceTag.contains("女中年") -> "女中年"
-            voiceTag.contains("男中年") -> "男中年"
-            voiceTag.contains("少女") -> "少女"
-            voiceTag.contains("少年") -> "少年"
-            voiceTag.contains("女青年") -> "女青年"
-            voiceTag.contains("男青年") -> "男青年"
+            voiceTag.contains("女童") || voiceTag.contains("幼女") || voiceTag.contains("女孩") -> "女/女童"
+            voiceTag.contains("男童") || voiceTag.contains("男孩") -> "男/男童"
+            voiceTag.contains("女老年") -> "女/女老年"
+            voiceTag.contains("男老年") -> "男/男老年"
+            voiceTag.contains("女中年") -> "女/女中年"
+            voiceTag.contains("男中年") -> "男/男中年"
+            voiceTag.contains("少女") -> "女/少女"
+            voiceTag.contains("少年") -> "男/少年"
+            voiceTag.contains("女青年") -> "女/女青年"
+            voiceTag.contains("男青年") -> "男/男青年"
             else -> ""
         }
         return gender to ageType
@@ -655,17 +655,18 @@ object ScriptBrain {
             else -> "待定"
         }
         val ageType = when {
-            childKeywords.any { name.contains(it) } -> "儿童"
-            oldKeywords.any { name.contains(it) } -> "老年"
-            else -> "青年"
+            childKeywords.any { name.contains(it) } -> if (gender == "女") "女/女童" else "男/男童"
+            oldKeywords.any { name.contains(it) } -> if (gender == "女") "女/女老年" else "男/男老年"
+            gender == "女" -> "女/女青年"
+            else -> "男/男青年"
         }
         val voiceTag = when {
-            gender == "女" && ageType == "儿童" -> "女童01"
-            gender == "男" && ageType == "儿童" -> "男童01"
-            gender == "女" && ageType == "老年" -> "老年女01"
-            gender == "男" && ageType == "老年" -> "老年男01"
-            gender == "女" -> "女青年01"
-            gender == "男" -> "男青年01"
+            ageType == "女/女童" -> "女/女童01"
+            ageType == "男/男童" -> "男/男童01"
+            ageType == "女/女老年" -> "女/女老年01"
+            ageType == "男/男老年" -> "男/男老年01"
+            ageType == "女/女青年" -> "女/女青年01"
+            ageType == "男/男青年" -> "男/男青年01"
             else -> "待分配"
         }
         return ScriptCharacter(name, gender, ageType, voiceTag)
@@ -807,11 +808,22 @@ object ScriptBrain {
 
     private fun String.toRoleManagerAge(gender: String): String {
         return when {
-            contains("童") || contains("儿童") -> if (gender == "男") "男孩" else "幼女"
-            contains("老") -> "老年"
-            contains("中") -> "中年"
-            contains("少") -> "少年"
-            else -> "青年"
+            matches(Regex("^[男女]/.+")) -> this
+            contains("女童") || contains("幼女") || contains("女孩") -> "女/女童"
+            contains("男童") || contains("男孩") -> "男/男童"
+            contains("女老年") -> "女/女老年"
+            contains("男老年") -> "男/男老年"
+            contains("女中年") -> "女/女中年"
+            contains("男中年") -> "男/男中年"
+            contains("少女") -> "女/少女"
+            contains("少年") -> "男/少年"
+            contains("女青年") -> "女/女青年"
+            contains("男青年") -> "男/男青年"
+            contains("童") || contains("儿童") -> if (gender == "女") "女/女童" else "男/男童"
+            contains("老") -> if (gender == "女") "女/女老年" else "男/男老年"
+            contains("中") -> if (gender == "女") "女/女中年" else "男/男中年"
+            contains("少") -> if (gender == "女") "女/少女" else "男/少年"
+            else -> if (gender == "女") "女/女青年" else "男/男青年"
         }
     }
 
@@ -1019,7 +1031,7 @@ object ScriptBrain {
     private val femaleKeywords = listOf("女", "娘", "妹", "姐", "姑", "婆", "姨", "母", "月", "雪", "柔", "婉")
     private val maleKeywords = listOf("男", "哥", "叔", "伯", "父", "爷", "掌柜", "凡", "轩", "辰", "峰")
     private val childKeywords = listOf("小", "童", "孩", "娃")
-    private const val ROLE_MANAGER_PLUGIN_ASSET = "defaultData/scriptBrain/role_manager_plugin_v2663.json"
+    private const val ROLE_MANAGER_PLUGIN_ASSET = "defaultData/scriptBrain/role_manager_plugin_v2667.json"
     private val ROLE_MANAGER_FILES = listOf(
         "characterRecords.json",
         "shuming.<book>.json",

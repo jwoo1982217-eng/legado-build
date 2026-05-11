@@ -1,6 +1,6 @@
 var SpeechRuleJS = (function () {
     var RULE_NAME = "阅读端有声书模式朗读规则";
-    var RULE_VERSION = "1.0.0";
+    var RULE_VERSION = "1.0.2";
     var NARRATOR = "旁白";
     var UNKNOWN = "未知角色";
 
@@ -102,28 +102,28 @@ var SpeechRuleJS = (function () {
 
     function inferCharacter(name) {
         if (name === NARRATOR) {
-            return { name: NARRATOR, gender: "旁白", ageType: "旁白", voiceTag: "旁白01" };
+            return { name: NARRATOR, gender: "旁白", ageType: "旁白", voiceTag: "旁白" };
         }
         if (!name || name === UNKNOWN) {
-            return { name: UNKNOWN, gender: "待定", ageType: "待定", voiceTag: "男青年01" };
+            return { name: UNKNOWN, gender: "待定", ageType: "男/男青年", voiceTag: "男/男青年01" };
         }
         var gender = "待定";
-        var ageType = "男青年";
+        var ageType = "男/男青年";
         if (/娘|母|妈|姨|婶|嫂|姐|妹|女|妃|后|姬|嫣|月|雪|灵|兰|花|凤|瑶|璃|薇|姑娘|小姐|夫人|婆婆|丫头/.test(name)) {
             gender = "女";
-            ageType = "女青年";
+            ageType = "女/女青年";
         } else if (/父|爹|叔|伯|哥|弟|男|王爷|公子|先生|郎|将军|掌柜|师兄|老爷|少爷/.test(name)) {
             gender = "男";
-            ageType = "男青年";
+            ageType = "男/男青年";
         }
         if (/小|童|孩|娃|丫头/.test(name)) {
-            ageType = gender === "女" ? "女童" : "男童";
+            ageType = gender === "女" ? "女/女童" : "男/男童";
         } else if (/老|婆婆|爷爷|奶奶|老人/.test(name)) {
-            ageType = gender === "女" ? "女老年" : "男老年";
+            ageType = gender === "女" ? "女/女老年" : "男/男老年";
         } else if (/叔|伯|婶|姨|掌柜|夫人|先生|师父|父|母/.test(name)) {
-            ageType = gender === "女" ? "女中年" : "男中年";
+            ageType = gender === "女" ? "女/女中年" : "男/男中年";
         } else if (/少|少年|少女/.test(name)) {
-            ageType = gender === "女" ? "少女" : "少年";
+            ageType = gender === "女" ? "女/少女" : "男/少年";
         }
         if (gender === "待定") {
             if (/^男/.test(ageType) || ageType === "少年") gender = "男";
@@ -138,16 +138,42 @@ var SpeechRuleJS = (function () {
     }
 
     function defaultVoice(gender, ageType) {
-        if (ageType === "女童" || (gender === "女" && ageType === "儿童")) return "女童01";
-        if (ageType === "男童" || (gender === "男" && ageType === "儿童")) return "男童01";
-        if (ageType === "女老年" || (gender === "女" && ageType === "老年")) return "女老年01";
-        if (ageType === "男老年" || (gender === "男" && ageType === "老年")) return "男老年01";
-        if (ageType === "女中年" || (gender === "女" && ageType === "中年")) return "女中年01";
-        if (ageType === "男中年" || (gender === "男" && ageType === "中年")) return "男中年01";
-        if (ageType === "少女" || (gender === "女" && ageType === "少年")) return "少女01";
-        if (ageType === "少年" || (gender === "男" && ageType === "少年")) return "少年01";
-        if (gender === "女") return "女青年01";
-        return "男青年01";
+        var prefix = voicePoolPrefix(ageType, gender);
+        return prefix + "01";
+    }
+
+    function voicePoolPrefix(ageType, gender) {
+        var s = String(ageType || "").replace(/\s+/g, "");
+        gender = String(gender || "");
+        if (/^男\/(?:男童|少年|男青年|男中年|男老年|特殊)$/.test(s)) return s;
+        if (/^女\/(?:女童|少女|女青年|女中年|女老年|特殊)$/.test(s)) return s;
+        if (/女/.test(s)) gender = "女";
+        if (/男/.test(s)) gender = "男";
+        if (/老年|老人|老者|老翁|老汉|爷爷|七旬|八旬|六旬|古稀|花甲/.test(s)) return gender === "女" ? "女/女老年" : "男/男老年";
+        if (/女童|小女孩|女娃|幼女/.test(s)) return "女/女童";
+        if (/男童|小男孩|男娃|童/.test(s)) return "男/男童";
+        if (/少女|姑娘|丫头|女学生/.test(s)) return "女/少女";
+        if (/少年|小伙子|男学生/.test(s)) return "男/少年";
+        if (/女中年|中年妇|妇人|妇女/.test(s)) return "女/女中年";
+        if (/男中年|中年|壮年|汉子|大汉|管事|掌柜|管家|官员|将军/.test(s)) return gender === "女" ? "女/女中年" : "男/男中年";
+        if (/女青年|女子|女人/.test(s)) return "女/女青年";
+        if (/男青年|男子|男人/.test(s)) return "男/男青年";
+        if (/青年|年轻/.test(s)) return gender === "女" ? "女/女青年" : "男/男青年";
+        if (/特殊/.test(s)) return gender === "女" ? "女/特殊" : "男/特殊";
+        if (gender === "女") return "女/女青年";
+        return "男/男青年";
+    }
+
+    function normalizeVoiceTag(voiceTag, ageType, gender) {
+        var v = String(voiceTag || "").replace(/\s+/g, "");
+        if (/^(男|女)\/.+\d{2,3}$/.test(v)) return v;
+        if (/^(男|女)\/.+$/.test(v)) return v + "01";
+        var m = /^(男童|女童|少年|少女|男青年|女青年|男中年|女中年|男老年|女老年|特殊男|特殊女)(\d{2,3})?$/.exec(v);
+        if (m) {
+            var prefix = voicePoolPrefix(m[1], gender);
+            return prefix + (m[2] || "01");
+        }
+        return defaultVoice(gender, ageType);
     }
 
     function makeItem(index, roleName, text, tag, emotion) {
@@ -229,10 +255,10 @@ var SpeechRuleJS = (function () {
             "你是小说有声书角色音色分配器。请只输出 JSON，不要 Markdown，不要解释。",
             "任务：根据角色名和台词片段，判断每个角色的 gender、ageType、voiceTag。",
             "gender 只能是：男、女、待定。",
-            "ageType 只能从这套朗读规则定义里选择：男童、女童、少年、少女、男青年、女青年、男中年、女中年、男老年、女老年、待定。",
-            "voiceTag 必须从这些格式中选择：男童01、女童01、少年01、少女01、男青年01、女青年01、男中年01、女中年01、男老年01、女老年01。",
-            "如果无法判断，voiceTag 使用男青年01，gender 使用待定，ageType 使用男青年。",
-            "输出格式：{\"characters\":[{\"name\":\"张三\",\"gender\":\"男\",\"ageType\":\"男青年\",\"voiceTag\":\"男青年01\"}]}",
+            "ageType 必须从这套朗读规则定义里选择：男/男童、女/女童、男/少年、女/少女、男/男青年、女/女青年、男/男中年、女/女中年、男/男老年、女/女老年、待定。",
+            "voiceTag 必须从这些带路径标签中选择：男/男童01、女/女童01、男/少年01、女/少女01、男/男青年01、女/女青年01、男/男中年01、女/女中年01、男/男老年01、女/女老年01。",
+            "如果无法判断，voiceTag 使用男/男青年01，gender 使用待定，ageType 使用男/男青年。",
+            "输出格式：{\"characters\":[{\"name\":\"张三\",\"gender\":\"男\",\"ageType\":\"男/男青年\",\"voiceTag\":\"男/男青年01\"}]}",
             "角色和片段：",
             JSON.stringify(snippets)
         ].join("\n");
@@ -248,8 +274,8 @@ var SpeechRuleJS = (function () {
                 if (!name) continue;
                 map[name] = {
                     gender: String(role.gender || "待定"),
-                    ageType: String(role.ageType || role.age || "青年"),
-                    voiceTag: String(role.voiceTag || role.voice || "男青年01")
+                    ageType: voicePoolPrefix(role.ageType || role.age || "男/男青年", role.gender || "待定"),
+                    voiceTag: normalizeVoiceTag(role.voiceTag || role.voice || "", role.ageType || role.age || "男/男青年", role.gender || "待定")
                 };
             }
             for (var q = 0; q < queue.length; q++) {
@@ -362,7 +388,7 @@ var SpeechRuleJS = (function () {
             if (!item.roleName) item.roleName = NARRATOR;
             if (!item.voice && item.voiceTag) item.voice = item.voiceTag;
             if (!item.voiceTag && item.voice) item.voiceTag = item.voice;
-            if (!item.displayVoice) item.displayVoice = item.voiceTag || item.voice || "旁白01";
+            if (!item.displayVoice) item.displayVoice = item.voiceTag || item.voice || "旁白";
             result.push(item);
         }
         return result;
