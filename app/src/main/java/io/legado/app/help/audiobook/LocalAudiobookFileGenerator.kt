@@ -121,7 +121,7 @@ object LocalAudiobookFileGenerator {
             }
         }
 
-        val audioFile = listOf("mp3", "wav", "audio")
+        val audioFile = listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio")
             .asSequence()
             .map { File(dir, "$baseName.$it") }
             .firstOrNull { it.exists() && it.length() > 0 }
@@ -129,7 +129,7 @@ object LocalAudiobookFileGenerator {
             return ChapterStatus(
                 status = "ready",
                 path = audioFile.absolutePath,
-                format = audioFile.extension,
+                format = audioFile.chapterAudioFormat(),
                 sizeBytes = audioFile.length(),
                 totalItems = 0,
                 readyItems = 0,
@@ -415,11 +415,17 @@ object LocalAudiobookFileGenerator {
         val outDir = chapterDir(context, bookName)
         val baseName = chapterFileBaseName(chapter)
         val bytesList = audioSegments.map { it.bytes }
-        val outFile = chapterMp3OutputFile(outDir, baseName)
+        val outFile = chapterProtectedOutputFile(outDir, baseName)
+        val tempMp3 = chapterTempMp3File(outFile, baseName)
         when {
-            bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, outFile)
-            bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, outFile, baseName)
-            else -> encodeSegmentFilesToMp3(audioSegments, outFile, baseName)
+            bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, tempMp3)
+            bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, tempMp3, baseName)
+            else -> encodeSegmentFilesToMp3(audioSegments, tempMp3, baseName)
+        }
+        try {
+            ProtectedAudiobookFile.protectMp3(context, tempMp3, outFile)
+        } finally {
+            tempMp3.delete()
         }
 
         if (outFile.length() <= 0) error("章节音频文件为空")
@@ -473,8 +479,14 @@ object LocalAudiobookFileGenerator {
 
             if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
             val baseName = chapterFileBaseName(chapter)
-            val outFile = chapterMp3OutputFile(outDir, baseName)
-            encodeWavSegmentsToMp3(audioSegments.map { it.bytes }, outFile, baseName)
+            val outFile = chapterProtectedOutputFile(outDir, baseName)
+            val tempMp3 = chapterTempMp3File(outFile, baseName)
+            encodeWavSegmentsToMp3(audioSegments.map { it.bytes }, tempMp3, baseName)
+            try {
+                ProtectedAudiobookFile.protectMp3(context, tempMp3, outFile)
+            } finally {
+                tempMp3.delete()
+            }
             if (outFile.length() <= 0) error("章节音频文件为空")
             return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
         } finally {
@@ -643,12 +655,26 @@ object LocalAudiobookFileGenerator {
         return result
     }
 
-    private fun chapterMp3OutputFile(outDir: File, baseName: String): File {
+    private fun chapterProtectedOutputFile(outDir: File, baseName: String): File {
         if (!outDir.exists()) outDir.mkdirs()
-        listOf("mp3", "wav", "audio").forEach { extension ->
+        listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio").forEach { extension ->
             File(outDir, "$baseName.$extension").delete()
         }
-        return File(outDir, "$baseName.mp3")
+        return File(outDir, "$baseName.${ProtectedAudiobookFile.EXTENSION}")
+    }
+
+    private fun chapterTempMp3File(outFile: File, baseName: String): File {
+        val tempRoot = outFile.parentFile ?: outFile.absoluteFile.parentFile ?: File(".")
+        return File(tempRoot, ".tmp/${baseName.safeFileName()}_${System.currentTimeMillis()}.mp3")
+            .also { it.parentFile?.mkdirs() }
+    }
+
+    private fun File.chapterAudioFormat(): String {
+        return if (ProtectedAudiobookFile.isProtectedFile(this)) {
+            ProtectedAudiobookFile.FORMAT
+        } else {
+            extension
+        }
     }
 
     private fun writeConcatenatedMp3(chunks: List<ByteArray>, outFile: File) {
@@ -972,7 +998,7 @@ object LocalAudiobookFileGenerator {
             .put("engine", engineName)
             .put("status", status)
             .put("path", file?.absolutePath.orEmpty())
-            .put("format", file?.extension.orEmpty())
+            .put("format", file?.chapterAudioFormat().orEmpty())
             .put("sizeBytes", file?.length() ?: 0L)
             .put("error", error)
             .put("items", JSONArray().apply {

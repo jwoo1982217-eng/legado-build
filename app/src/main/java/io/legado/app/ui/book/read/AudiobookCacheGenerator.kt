@@ -132,12 +132,12 @@ class AudiobookCacheGenerator(
         val modeDesc = if (useTtsServer) {
             "生成模式：J.TTS 缓存工厂"
         } else {
-            "生成模式：开源阅读本地章节音频转 MP3"
+            "生成模式：开源阅读本地受保护 MP3"
         }
         val targetDesc = if (useTtsServer) {
             "工作方式：把 $submitCount 章正文提交给 TTS，由 TTS 分析台词本、请求句子音频、生成章节缓存。"
         } else {
-            "工作方式：开源阅读优先复用朗读缓存，缺失时调用当前朗读引擎，再把句子音频合并成每章一个完整音频文件。"
+            "工作方式：开源阅读优先复用朗读缓存，缺失时调用当前朗读引擎，再把句子音频合并成每章一个受保护 MP3 缓存。"
         }
         val statusDesc = if (useTtsServer) {
             "完成判断：以 TTS 端实际缓存队列结果为准。"
@@ -146,7 +146,7 @@ class AudiobookCacheGenerator(
         }
 
         AlertDialog.Builder(context)
-            .setTitle("章节音频转MP3")
+            .setTitle("生成受保护MP3")
             .setMessage(
                 "书名：${book.name}\n" +
                         "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
@@ -213,7 +213,7 @@ class AudiobookCacheGenerator(
                     if (useTtsServer) {
                         "生成模式：J.TTS 直连 + 阅读端整章音频"
                     } else {
-                        "生成模式：开源阅读本地章节音频转 MP3"
+                        "生成模式：开源阅读本地受保护 MP3"
                     }
                 )
                 append("\n生成范围：当前章 + 后面 ")
@@ -299,7 +299,7 @@ class AudiobookCacheGenerator(
         }
 
         return "当前没有正在追踪的 J.TTS 任务 ID。\n" +
-                "上面的章节队列仍会显示开源阅读端已经合成好的完整 MP3/WAV 文件。"
+                "上面的章节队列仍会显示开源阅读端已经合成好的受保护 MP3 文件。"
     }
 
     private fun start(
@@ -526,7 +526,7 @@ class AudiobookCacheGenerator(
             append(status.status.toChapterState())
             if (status.format.isNotBlank()) {
                 append("，格式：")
-                append(status.format.uppercase())
+                append(status.format.toChapterFormatName())
             }
             if (status.sizeBytes > 0) {
                 append("，大小：")
@@ -721,6 +721,8 @@ class AudiobookCacheGenerator(
     private fun LocalAudiobookFileGenerator.ChapterStatus.toChapterQueueState(): String {
         if (status.isReadyStatus()) {
             return when (format.lowercase()) {
+                "protected_mp3" -> "已生成受保护 MP3"
+                "jreadmp3" -> "已生成受保护 MP3"
                 "mp3" -> "已生成 MP3"
                 "wav" -> "已生成 WAV"
                 "audio" -> "已生成音频"
@@ -728,6 +730,13 @@ class AudiobookCacheGenerator(
             }
         }
         return status.toChapterState()
+    }
+
+    private fun String.toChapterFormatName(): String {
+        return when (lowercase()) {
+            "protected_mp3", "jreadmp3" -> "受保护 MP3"
+            else -> uppercase()
+        }
     }
 
     private fun Long.formatFileSize(): String {
