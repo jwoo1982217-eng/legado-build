@@ -6,6 +6,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import io.legado.app.constant.AppPattern
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.HttpTTS
@@ -39,6 +41,8 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 object LocalAudiobookFileGenerator {
+
+    private const val MP3_BITRATE = "96k"
 
     data class Progress(
         val status: String,
@@ -411,22 +415,11 @@ object LocalAudiobookFileGenerator {
         val outDir = chapterDir(context, bookName)
         val baseName = chapterFileBaseName(chapter)
         val bytesList = audioSegments.map { it.bytes }
-        val outFile = when {
-            bytesList.all { it.looksLikeMp3() } -> File(outDir, "$baseName.mp3").also {
-                it.outputStream().use { output ->
-                    bytesList.forEachIndexed { index, bytes ->
-                        copyMp3Payload(bytes, output, keepLeadingTags = index == 0)
-                    }
-                }
-            }
-
-            bytesList.all { it.looksLikeWav() } -> File(outDir, "$baseName.wav").also {
-                writeMergedWav(bytesList, it)
-            }
-
-            else -> File(outDir, "$baseName.audio").also {
-                it.outputStream().use { output -> bytesList.forEach { bytes -> output.write(bytes) } }
-            }
+        val outFile = chapterMp3OutputFile(outDir, baseName)
+        when {
+            bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, outFile)
+            bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, outFile, baseName)
+            else -> encodeSegmentFilesToMp3(audioSegments, outFile, baseName)
         }
 
         if (outFile.length() <= 0) error("章节音频文件为空")
@@ -479,8 +472,9 @@ object LocalAudiobookFileGenerator {
             }
 
             if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
-            val outFile = File(outDir, "${chapterFileBaseName(chapter)}.wav")
-            writeMergedWav(audioSegments.map { it.bytes }, outFile)
+            val baseName = chapterFileBaseName(chapter)
+            val outFile = chapterMp3OutputFile(outDir, baseName)
+            encodeWavSegmentsToMp3(audioSegments.map { it.bytes }, outFile, baseName)
             if (outFile.length() <= 0) error("章节音频文件为空")
             return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
         } finally {
@@ -647,6 +641,103 @@ object LocalAudiobookFileGenerator {
         }
         if (rest.isNotBlank()) result += rest
         return result
+    }
+
+    private fun chapterMp3OutputFile(outDir: File, baseName: String): File {
+        if (!outDir.exists()) outDir.mkdirs()
+        listOf("mp3", "wav", "audio").forEach { extension ->
+            File(outDir, "$baseName.$extension").delete()
+        }
+        return File(outDir, "$baseName.mp3")
+    }
+
+    private fun writeConcatenatedMp3(chunks: List<ByteArray>, outFile: File) {
+        outFile.outputStream().use { output ->
+            chunks.forEachIndexed { index, bytes ->
+                copyMp3Payload(bytes, output, keepLeadingTags = index == 0)
+            }
+        }
+    }
+
+    private fun encodeWavSegmentsToMp3(chunks: List<ByteArray>, outFile: File, baseName: String) {
+        val tempRoot = outFile.parentFile ?: outFile.absoluteFile.parentFile ?: File(".")
+        val tempWav = File(
+            tempRoot,
+            ".tmp/${baseName.safeFileName()}_${System.currentTimeMillis()}.wav"
+        )
+        tempWav.parentFile?.mkdirs()
+        try {
+            writeMergedWav(chunks, tempWav)
+            encodeAudioFileToMp3(tempWav, outFile)
+        } finally {
+            tempWav.delete()
+        }
+    }
+
+    private fun encodeSegmentFilesToMp3(
+        segments: List<AudioSegment>,
+        outFile: File,
+        baseName: String,
+    ) {
+        val tempRoot = outFile.parentFile ?: outFile.absoluteFile.parentFile ?: File(".")
+        val tempDir = File(
+            tempRoot,
+            ".tmp/${baseName.safeFileName()}_${System.currentTimeMillis()}"
+        )
+        tempDir.mkdirs()
+        try {
+            val listFile = File(tempDir, "inputs.txt")
+            listFile.writeText(
+                segments.joinToString(separator = "\n") { segment ->
+                    "file ${segment.file.absolutePath.ffmpegQuote()}"
+                },
+                Charsets.UTF_8
+            )
+            encodeConcatListToMp3(listFile, outFile)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    private fun encodeConcatListToMp3(listFile: File, outFile: File) {
+        runFfmpegMp3Encode(
+            "-y -hide_banner -loglevel error " +
+                "-f concat -safe 0 -i ${listFile.absolutePath.ffmpegQuote()} " +
+                "-vn -codec:a libmp3lame -b:a $MP3_BITRATE ${outFile.absolutePath.ffmpegQuote()}",
+            outFile
+        )
+    }
+
+    private fun encodeAudioFileToMp3(inputFile: File, outFile: File) {
+        runFfmpegMp3Encode(
+            "-y -hide_banner -loglevel error " +
+                "-i ${inputFile.absolutePath.ffmpegQuote()} " +
+                "-vn -codec:a libmp3lame -b:a $MP3_BITRATE ${outFile.absolutePath.ffmpegQuote()}",
+            outFile
+        )
+    }
+
+    private fun runFfmpegMp3Encode(command: String, outFile: File) {
+        outFile.parentFile?.mkdirs()
+        if (outFile.exists()) outFile.delete()
+        val session = FFmpegKit.execute(command)
+        if (!ReturnCode.isSuccess(session.returnCode)) {
+            val detail = buildString {
+                val failStackTrace = session.failStackTrace.orEmpty()
+                val logs = session.allLogsAsString.orEmpty().takeLast(1200)
+                append(session.returnCode?.toString().orEmpty())
+                if (failStackTrace.isNotBlank()) append("\n").append(failStackTrace)
+                if (logs.isNotBlank()) append("\n").append(logs)
+            }.ifBlank { "未知错误" }
+            throw NoStackTraceException("MP3 编码失败：$detail")
+        }
+        if (!outFile.exists() || outFile.length() <= 0L) {
+            throw NoStackTraceException("MP3 编码结果为空")
+        }
+    }
+
+    private fun String.ffmpegQuote(): String {
+        return "'" + replace("'", "'\\''") + "'"
     }
 
     private fun writeMergedWav(chunks: List<ByteArray>, outFile: File) {

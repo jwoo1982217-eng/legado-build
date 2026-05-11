@@ -187,6 +187,7 @@ dependencies {
     implementation(libs.androidx.webkit)
     implementation(libs.material)
     implementation(libs.flexbox)
+    implementation(libs.ffmpeg.kit.full)
     implementation(libs.gson)
     implementation(libs.lifecycle.common.java8)
     implementation(libs.lifecycle.service)

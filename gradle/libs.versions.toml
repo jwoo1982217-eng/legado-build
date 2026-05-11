@@ -27,6 +27,7 @@ constraintlayout = "2.2.1"
 core = "1.18.0"
 firebaseBom = "34.6.0"
 flexbox = "3.0.0"
+ffmpegKit = "6.0"
 fragment = "1.8.9"
 
 #不要更新版本
@@ -221,6 +222,7 @@ commons-text = { module = "org.apache.commons:commons-text", version.ref = "comm
 desugar = { group = "com.android.tools", name = "desugar_jdk_libs_nio", version.ref = "desugar" }
 
 flexbox = { module = "com.google.android.flexbox:flexbox", version.ref = "flexbox" }
+ffmpeg-kit-full = { module = "com.mrljdx:ffmpeg-kit-full", version.ref = "ffmpegKit" }
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 json-path = { module = "com.jayway.jsonpath:json-path", version.ref = "jsonPath" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
