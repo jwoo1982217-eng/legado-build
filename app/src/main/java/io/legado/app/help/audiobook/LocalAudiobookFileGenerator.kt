@@ -193,7 +193,7 @@ object LocalAudiobookFileGenerator {
             )
         }
 
-        push("pending", "阅读端已接管当前朗读引擎，准备生成整章音频")
+        push("pending", "阅读端已接管当前朗读引擎，准备生成章节音频")
 
         chapters.forEachIndexed { chapterPosition, chapter ->
             currentCoroutineContext().ensureActive()
@@ -282,9 +282,9 @@ object LocalAudiobookFileGenerator {
         return Progress(
             status = if (failedChapters > 0) "failed" else "ready",
             message = if (failedChapters > 0) {
-                "整章音频生成完成，但有 $failedChapters 章失败"
+                "章节音频生成完成，但有 $failedChapters 章失败"
             } else {
-                "整章音频已生成：$readyChapters/${chapters.size} 章"
+                "章节音频已生成：$readyChapters/${chapters.size} 章"
             },
             totalChapters = chapters.size,
             readyChapters = readyChapters,
@@ -302,9 +302,13 @@ object LocalAudiobookFileGenerator {
         bookUrl: String,
         chapter: TtsServerDbBridge.AudiobookChapter,
         preferredHttpTts: HttpTTS? = null,
+        segmentsOverride: List<String>? = null,
     ): ChapterStatus {
         val appContext = context.applicationContext
-        val segments = splitSegments(chapter.chapterTitle, chapter.chapterText)
+        val segments = segmentsOverride
+            ?.filter { it.isNotBlank() }
+            ?.takeIf { it.isNotEmpty() }
+            ?: splitSegments(chapter.chapterTitle, chapter.chapterText)
         val result = if (preferredHttpTts != null) {
             generateHttpChapter(
                 context = appContext,
@@ -425,7 +429,7 @@ object LocalAudiobookFileGenerator {
             }
         }
 
-        if (outFile.length() <= 0) error("整章音频文件为空")
+        if (outFile.length() <= 0) error("章节音频文件为空")
         return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
     }
 
@@ -477,7 +481,7 @@ object LocalAudiobookFileGenerator {
             if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
             val outFile = File(outDir, "${chapterFileBaseName(chapter)}.wav")
             writeMergedWav(audioSegments.map { it.bytes }, outFile)
-            if (outFile.length() <= 0) error("整章音频文件为空")
+            if (outFile.length() <= 0) error("章节音频文件为空")
             return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
         } finally {
             withContext(Main) {

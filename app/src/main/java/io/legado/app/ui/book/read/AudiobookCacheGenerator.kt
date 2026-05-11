@@ -75,7 +75,7 @@ class AudiobookCacheGenerator(
             text = "正在查询章节生成状态..."
         }
         val statusDialog = AlertDialog.Builder(context)
-            .setTitle("章节状态查询")
+            .setTitle("合成进度")
             .setView(ScrollView(context).apply { addView(statusView) })
             .setPositiveButton(R.string.ok, null)
             .setNeutralButton("刷新", null)
@@ -94,7 +94,7 @@ class AudiobookCacheGenerator(
                         )
                     }
                 }.getOrElse { error ->
-                    "章节状态查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
+                    "合成进度查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
                 }
             }
         }
@@ -132,7 +132,7 @@ class AudiobookCacheGenerator(
         val modeDesc = if (useTtsServer) {
             "生成模式：J.TTS 缓存工厂"
         } else {
-            "生成模式：开源阅读本地整章合成"
+            "生成模式：开源阅读本地章节音频转 MP3"
         }
         val targetDesc = if (useTtsServer) {
             "工作方式：把 $submitCount 章正文提交给 TTS，由 TTS 分析台词本、请求句子音频、生成章节缓存。"
@@ -146,7 +146,7 @@ class AudiobookCacheGenerator(
         }
 
         AlertDialog.Builder(context)
-            .setTitle("生成整章有声书音频")
+            .setTitle("章节音频转MP3")
             .setMessage(
                 "书名：${book.name}\n" +
                         "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
@@ -213,7 +213,7 @@ class AudiobookCacheGenerator(
                     if (useTtsServer) {
                         "生成模式：J.TTS 直连 + 阅读端整章音频"
                     } else {
-                        "生成模式：开源阅读本地整章合成"
+                        "生成模式：开源阅读本地章节音频转 MP3"
                     }
                 )
                 append("\n生成范围：当前章 + 后面 ")
@@ -223,7 +223,7 @@ class AudiobookCacheGenerator(
             },
             chapters = states,
             footer = buildString {
-                append("完整章节音频：")
+                append("已合成章节：")
                 append(readyCount)
                 append("/")
                 append(chapters.size)
@@ -321,7 +321,7 @@ class AudiobookCacheGenerator(
             addView(statusView)
         }
         val statusDialog = AlertDialog.Builder(context)
-            .setTitle("正在生成整章音频")
+            .setTitle("正在生成章节音频")
             .setView(statusScrollView)
             .setNegativeButton("取消任务", null)
             .setNeutralButton("后台运行", null)
@@ -335,7 +335,7 @@ class AudiobookCacheGenerator(
                         TtsServerDbBridge.cancelAudiobookGeneration(context, runningTaskId)
                     }
                 }
-                context.toastOnUi("已请求取消有声书生成任务")
+                context.toastOnUi("已请求取消章节音频生成任务")
                 statusDialog.dismiss()
             }
             statusDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -402,7 +402,7 @@ class AudiobookCacheGenerator(
                     taskId = null
                     markChapterProgress(chapterStates, readyCount = 0, failedCount = 0, running = true)
                     statusView.text = formatGenerationStatus(
-                        header = "已准备 ${chapters.size} 章正文，阅读端正在生成整章音频...",
+                        header = "已准备 ${chapters.size} 章正文，阅读端正在生成章节音频...",
                         chapters = chapterStates,
                         footer = ""
                     )
@@ -425,11 +425,11 @@ class AudiobookCacheGenerator(
                         }
                     }
                     if (final.isReady) {
-                        context.toastOnUi("有声书章节音频已生成")
+                        context.toastOnUi("章节音频已生成")
                     }
                 }
             } catch (e: Throwable) {
-                statusView.text = "有声书生成提交失败：${e.localizedMessage ?: e.javaClass.simpleName}"
+                statusView.text = "章节音频生成提交失败：${e.localizedMessage ?: e.javaClass.simpleName}"
             }
         }
     }
@@ -659,7 +659,7 @@ class AudiobookCacheGenerator(
     ): String {
         val statusName = when (status.lowercase()) {
             "pending" -> "等待中"
-            "caching_audio" -> "正在生成整章音频"
+            "caching_audio" -> "正在生成章节音频"
             "ready", "completed" -> "音频已完成"
             "failed" -> "生成失败"
             "cancelled", "canceled" -> "已取消"

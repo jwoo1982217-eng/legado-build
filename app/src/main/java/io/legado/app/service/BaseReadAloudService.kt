@@ -703,9 +703,11 @@ abstract class BaseReadAloudService : BaseService(),
         val shouldMerge = chapterFinishedByPlayback
         chapterFinishedByPlayback = false
         if (shouldMerge) {
+            val finishedSegments = contentList.toList()
             autoMergeFinishedChapterAudio(
                 book = ReadBook.book,
                 textChapter = ReadBook.curTextChapter,
+                spokenSegments = finishedSegments,
                 preferredHttpTts = currentHttpTtsForAudiobookMerge()
             )
         }
@@ -727,15 +729,17 @@ abstract class BaseReadAloudService : BaseService(),
     private fun autoMergeFinishedChapterAudio(
         book: Book?,
         textChapter: TextChapter?,
+        spokenSegments: List<String>,
         preferredHttpTts: HttpTTS?,
     ) {
         if (!AppConfig.audiobookAutoMergeAfterRead) return
         val currentBook = book ?: return
         val finishedChapter = textChapter ?: return
-        val chapterText = finishedChapter.getNeedReadAloud(0, false, 0).trim()
+        val chapterText = spokenSegments.joinToString("\n").trim()
+            .ifBlank { finishedChapter.getNeedReadAloud(0, false, 0).trim() }
         if (chapterText.isBlank()) return
 
-        execute(executeContext = IO) {
+        Coroutine.async(context = IO) {
             val status = LocalAudiobookFileGenerator.generateFinishedReadAloudChapter(
                 context = this@BaseReadAloudService,
                 bookName = currentBook.name,
@@ -745,14 +749,15 @@ abstract class BaseReadAloudService : BaseService(),
                     chapterTitle = finishedChapter.chapter.title,
                     chapterText = chapterText
                 ),
-                preferredHttpTts = preferredHttpTts
+                preferredHttpTts = preferredHttpTts,
+                segmentsOverride = spokenSegments
             )
             AppLog.putDebug(
-                "读完自动合成整章音频完成: ${currentBook.name} / ${finishedChapter.chapter.title} / ${status.format} / ${status.path}"
+                "读完自动合成章节音频完成: ${currentBook.name} / ${finishedChapter.chapter.title} / ${status.format} / ${status.path}"
             )
         }.onError {
             AppLog.put(
-                "读完自动合成整章音频失败: ${currentBook.name} / ${finishedChapter.chapter.title}\n${it.localizedMessage}",
+                "读完自动合成章节音频失败: ${currentBook.name} / ${finishedChapter.chapter.title}\n${it.localizedMessage}",
                 it
             )
         }
