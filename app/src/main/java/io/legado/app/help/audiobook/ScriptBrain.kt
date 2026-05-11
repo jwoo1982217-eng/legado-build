@@ -550,11 +550,46 @@ object ScriptBrain {
         return lines
             .asSequence()
             .filterNot { it.isNarration }
-            .map { it.roleName }
-            .filter { it.isNotBlank() && it != UNKNOWN_ROLE }
-            .distinct()
-            .map { inferCharacter(it) }
+            .filter { it.roleName.isNotBlank() && it.roleName != UNKNOWN_ROLE }
+            .groupBy { it.roleName }
+            .map { (name, roleLines) ->
+                val base = inferCharacter(name)
+                val voiceTag = roleLines
+                    .map { it.voiceTag }
+                    .firstOrNull { it.isNotBlank() && it != "待分配" }
+                    .orEmpty()
+                val voiceInfo = inferCharacterFromVoiceTag(voiceTag)
+                ScriptCharacter(
+                    name = name,
+                    gender = voiceInfo.first.ifBlank { base.gender },
+                    ageType = voiceInfo.second.ifBlank { base.ageType },
+                    voiceTag = voiceTag.ifBlank { base.voiceTag },
+                )
+            }
             .toList()
+    }
+
+    private fun inferCharacterFromVoiceTag(voiceTag: String): Pair<String, String> {
+        if (voiceTag.isBlank() || voiceTag == "待分配") return "" to ""
+        val gender = when {
+            voiceTag.contains("女") || voiceTag.contains("幼女") -> "女"
+            voiceTag.contains("男") -> "男"
+            else -> ""
+        }
+        val ageType = when {
+            voiceTag.contains("女童") || voiceTag.contains("幼女") || voiceTag.contains("女孩") -> "女童"
+            voiceTag.contains("男童") || voiceTag.contains("男孩") -> "男童"
+            voiceTag.contains("女老年") -> "女老年"
+            voiceTag.contains("男老年") -> "男老年"
+            voiceTag.contains("女中年") -> "女中年"
+            voiceTag.contains("男中年") -> "男中年"
+            voiceTag.contains("少女") -> "少女"
+            voiceTag.contains("少年") -> "少年"
+            voiceTag.contains("女青年") -> "女青年"
+            voiceTag.contains("男青年") -> "男青年"
+            else -> ""
+        }
+        return gender to ageType
     }
 
     private fun normalizeRoleName(role: String, tag: String): String {
