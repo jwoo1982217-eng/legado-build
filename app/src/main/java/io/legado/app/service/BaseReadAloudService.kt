@@ -49,6 +49,7 @@ import io.legado.app.model.ReadBook
 import io.legado.app.receiver.MediaButtonReceiver
 import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.ui.book.read.page.entities.TextChapter
+import io.legado.app.ui.book.read.page.entities.TextPage
 import io.legado.app.utils.LogUtils
 import io.legado.app.utils.activityPendingIntent
 import io.legado.app.utils.getPrefBoolean
@@ -256,10 +257,10 @@ abstract class BaseReadAloudService : BaseService(),
                     pos = tmp
                 }
             }
-            nowSpeak = textChapter.getParagraphNum(readAloudNumber + 1, readAloudByPage) - 1
+            nowSpeak = (textChapter.getParagraphNum(readAloudNumber + 1, readAloudByPage) - 1)
+                .coerceAtLeast(0)
             if (!readAloudByPage && startPos == 0 && !toLast) {
-                pos = page.chapterPosition -
-                        textChapter.paragraphs[nowSpeak].chapterPosition
+                pos = adjustSmoothPageStart(textChapter, page)
             }
             if (toLast) {
                 toLast = false
@@ -277,6 +278,24 @@ abstract class BaseReadAloudService : BaseService(),
         }.onError {
             AppLog.put("启动朗读出错\n${it.localizedMessage}", it, true)
         }
+    }
+
+    private fun adjustSmoothPageStart(textChapter: TextChapter, page: TextPage): Int {
+        val paragraphs = textChapter.paragraphs
+        val currentParagraph = paragraphs.getOrNull(nowSpeak) ?: return 0
+        val pageStart = page.chapterPosition
+        val pageEnd = pageStart + page.charSize
+        if (currentParagraph.chapterPosition < pageStart) {
+            val nextParagraphIndex = paragraphs.indexOfFirst {
+                it.chapterPosition >= pageStart && it.chapterPosition < pageEnd
+            }
+            if (nextParagraphIndex > nowSpeak) {
+                nowSpeak = nextParagraphIndex
+                readAloudNumber = paragraphs[nextParagraphIndex].chapterPosition
+                return 0
+            }
+        }
+        return (pageStart - currentParagraph.chapterPosition).coerceAtLeast(0)
     }
 
     @SuppressLint("WakelockTimeout")
