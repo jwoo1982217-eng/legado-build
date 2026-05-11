@@ -56,6 +56,7 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.domain.usecase.ChangeSourceMigrationOptions
 import io.legado.app.help.book.isSameNameAuthor
+import io.legado.app.model.BookCover
 import io.legado.app.ui.book.changecover.ChangeCoverViewModel
 import io.legado.app.ui.book.changesource.ChangeBookSourceComposeViewModel
 import io.legado.app.ui.book.changesource.ChangeSourceMigrationOptionsSheet
@@ -226,6 +227,55 @@ fun ChangeCoverSheet(
                     Column(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         CoilBookCover(name = item.name, author = item.author, path = item.coverUrl, sourceOrigin = item.origin, modifier = Modifier.fillMaxWidth())
                         AppText(text = item.originName, style = LegadoTheme.typography.bodySmall, maxLines = 2)
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun BuiltInCoverSheet(
+    show: Boolean,
+    name: String,
+    author: String,
+    onDismissRequest: () -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    val covers = remember { BookCover.builtInCoverPaths }
+    AppModalBottomSheet(
+        show = show,
+        onDismissRequest = onDismissRequest,
+        title = "内置封面"
+    ) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(3),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(covers, key = { it }) { path ->
+                val index = covers.indexOf(path) + 1
+                GlassCard(onClick = { onSelect(path) }) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CoilBookCover(
+                            name = name,
+                            author = author,
+                            path = path,
+                            sourceOrigin = null,
+                            modifier = Modifier.fillMaxWidth(),
+                            ignoreUseDefaultCover = true
+                        )
+                        AppText(
+                            text = "内置 $index",
+                            style = LegadoTheme.typography.bodySmall,
+                            maxLines = 1
+                        )
                     }
                 }
             }

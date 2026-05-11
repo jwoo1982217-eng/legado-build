@@ -276,6 +276,15 @@ private fun BookInfoScreenContent(
             onDismissRequest = { onIntent(BookInfoIntent.DismissSheet) },
             onSelect = { onIntent(BookInfoIntent.SelectCover(it)) },
         )
+        BookInfoSheet.BuiltInCoverPicker -> state.book?.let { book ->
+            BuiltInCoverSheet(
+                show = currentSheet == BookInfoSheet.BuiltInCoverPicker,
+                name = book.name,
+                author = book.author,
+                onDismissRequest = { onIntent(BookInfoIntent.DismissSheet) },
+                onSelect = { onIntent(BookInfoIntent.SelectCover(it)) },
+            )
+        }
         BookInfoSheet.GroupPicker -> GroupSelectSheet(
             show = currentSheet == BookInfoSheet.GroupPicker,
             currentGroupId = state.book?.group ?: 0L,

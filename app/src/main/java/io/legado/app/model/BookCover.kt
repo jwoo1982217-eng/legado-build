@@ -55,7 +55,7 @@ object BookCover {
 
     private const val coverRuleConfigKey = "legadoCoverRuleConfig"
     const val configFileName = "coverRule.json"
-    private val builtInCoverPaths = listOf(
+    val builtInCoverPaths = listOf(
         "file:///android_asset/defaultData/covers/builtin_cover_01.png",
         "file:///android_asset/defaultData/covers/builtin_cover_02.png",
         "file:///android_asset/defaultData/covers/builtin_cover_03.png",

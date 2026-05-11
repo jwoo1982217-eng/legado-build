@@ -30,6 +30,7 @@ data class BookInfoUiState(
 sealed interface BookInfoSheet {
     data object None : BookInfoSheet
     data object CoverPicker : BookInfoSheet
+    data object BuiltInCoverPicker : BookInfoSheet
     data object GroupPicker : BookInfoSheet
     data object SourcePicker : BookInfoSheet
     data object ReadRecord : BookInfoSheet

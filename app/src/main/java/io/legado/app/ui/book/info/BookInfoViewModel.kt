@@ -156,8 +156,7 @@ class BookInfoViewModel(
             BookInfoIntent.ShelfClick -> onShelfClick()
             BookInfoIntent.TocClick -> onTocClick()
             BookInfoIntent.CoverClick -> setSheet(BookInfoSheet.CoverPicker)
-            BookInfoIntent.CoverLongClick -> currentBook?.getDisplayCover()?.takeIf { it.isNotBlank() }
-                ?.let { showDialog(BookInfoDialog.PhotoPreview(it)) }
+            BookInfoIntent.CoverLongClick -> setSheet(BookInfoSheet.BuiltInCoverPicker)
 
             BookInfoIntent.GroupClick -> setSheet(BookInfoSheet.GroupPicker)
             BookInfoIntent.ChangeSourceClick -> setSheet(BookInfoSheet.SourcePicker)
