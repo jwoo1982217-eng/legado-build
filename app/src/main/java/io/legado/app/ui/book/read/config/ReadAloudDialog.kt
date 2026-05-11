@@ -10,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -364,13 +365,149 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun showScriptCharacters() {
-        val analysis = ScriptBrain.analyzeCurrentChapter(requireContext())
+        val snapshot = ScriptBrain.roleManagerSnapshot(requireContext())
         AlertDialog.Builder(requireContext())
-            .setTitle("角色表")
-            .setView(scriptCharacterListView(analysis))
+            .setTitle("编辑插件TTS")
+            .setView(roleManagerPluginView(snapshot))
             .setNegativeButton("运行当前章") { _, _ -> runScriptRuleForCurrentChapter() }
             .setPositiveButton(android.R.string.ok, null)
             .show()
+    }
+
+    private fun roleManagerPluginView(snapshot: ScriptBrain.RoleManagerSnapshot): ScrollView {
+        val context = requireContext()
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dpToPx(), 10.dpToPx(), 16.dpToPx(), 16.dpToPx())
+        }
+
+        fun addText(text: String, size: Float = 15f, bold: Boolean = false, color: Int = Color.rgb(45, 45, 45)) {
+            container.addView(TextView(context).apply {
+                this.text = text
+                textSize = size
+                setTextColor(color)
+                if (bold) typeface = Typeface.DEFAULT_BOLD
+                setPadding(2.dpToPx(), 5.dpToPx(), 2.dpToPx(), 5.dpToPx())
+            })
+        }
+
+        fun button(label: String, color: Int): Button {
+            return Button(context).apply {
+                text = label
+                textSize = 14f
+                isAllCaps = false
+                setTextColor(Color.WHITE)
+                background = GradientDrawable().apply {
+                    cornerRadius = 2.dpToPx().toFloat()
+                    setColor(color)
+                }
+                setOnClickListener { toastOnUi("$label：阅读端角色管理模块已接入") }
+            }
+        }
+
+        fun addButtonRow(labels: List<String>, colors: List<Int>) {
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 5.dpToPx(), 0, 5.dpToPx())
+            }
+            labels.forEachIndexed { index, label ->
+                row.addView(button(label, colors.getOrElse(index) { Color.rgb(80, 160, 80) }).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 48.dpToPx(), 1f).apply {
+                        setMargins(2.dpToPx(), 0, 2.dpToPx(), 0)
+                    }
+                })
+            }
+            container.addView(row)
+        }
+
+        addButtonRow(
+            listOf("保存密钥", "恢复密钥"),
+            listOf(Color.rgb(76, 175, 80), Color.rgb(255, 152, 0))
+        )
+        addText("内置模块：${snapshot.pluginName}  v${snapshot.pluginVersion} / ${snapshot.pluginAuthor}", 13f, color = Color.rgb(100, 100, 100))
+        addButtonRow(
+            listOf("新增角色", "创建新书", "备份恢复", "管理书籍"),
+            listOf(Color.rgb(76, 175, 80), Color.rgb(33, 150, 243), Color.rgb(156, 39, 176), Color.rgb(255, 152, 0))
+        )
+        addButtonRow(
+            listOf("执行合并", "更换发音人", "释放角色", "删除角色"),
+            listOf(Color.rgb(76, 175, 80), Color.rgb(156, 39, 176), Color.rgb(33, 150, 243), Color.rgb(244, 67, 54))
+        )
+
+        val bookRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 6.dpToPx(), 0, 8.dpToPx())
+        }
+        bookRow.addView(TextView(context).apply {
+            text = snapshot.bookName
+            textSize = 16f
+            setTextColor(Color.rgb(30, 30, 30))
+            setPadding(12.dpToPx(), 10.dpToPx(), 12.dpToPx(), 10.dpToPx())
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(250, 250, 250))
+                setStroke(1.dpToPx(), Color.rgb(80, 80, 80))
+            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        bookRow.addView(button("刷新", Color.rgb(96, 125, 139)).apply {
+            layoutParams = LinearLayout.LayoutParams(92.dpToPx(), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(4.dpToPx(), 0, 0, 0)
+            }
+        })
+        bookRow.addView(button("搜索", Color.rgb(33, 150, 243)).apply {
+            layoutParams = LinearLayout.LayoutParams(92.dpToPx(), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(4.dpToPx(), 0, 0, 0)
+            }
+        })
+        container.addView(bookRow)
+
+        addText("角色列表（已标记 ${snapshot.characters.size}）：", 16f, true)
+        if (snapshot.characters.isEmpty()) {
+            addText("当前书还没有角色记录。先点“分析规则”运行当前章，分析结果会自动写入这里。", 15f)
+        } else {
+            snapshot.characters.forEachIndexed { index, character ->
+                val selected = index == 0
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(12.dpToPx(), 10.dpToPx(), 8.dpToPx(), 10.dpToPx())
+                    background = GradientDrawable().apply {
+                        cornerRadius = 2.dpToPx().toFloat()
+                        setColor(if (selected) Color.rgb(255, 249, 190) else Color.TRANSPARENT)
+                        if (!selected) setStroke(1.dpToPx(), Color.rgb(232, 232, 232))
+                    }
+                }
+                row.addView(TextView(context).apply {
+                    text = "${character.name}    【${character.voiceTag}-${character.gender}-${character.ageType}】"
+                    textSize = 16f
+                    setTextColor(if (selected) Color.rgb(210, 90, 30) else Color.rgb(35, 35, 35))
+                    if (selected) typeface = Typeface.DEFAULT_BOLD
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                row.addView(RadioButton(context).apply {
+                    isChecked = selected
+                    isClickable = false
+                    isFocusable = false
+                })
+                container.addView(row)
+            }
+        }
+
+        addButtonRow(
+            listOf("执行合并", "释放角色", "回退一步"),
+            listOf(Color.rgb(76, 175, 80), Color.rgb(33, 150, 243), Color.rgb(255, 152, 0))
+        )
+        addButtonRow(
+            listOf("固定发音人", "固定当前发音人", "固定性别年龄", "删除角色"),
+            listOf(Color.rgb(156, 39, 176), Color.rgb(123, 31, 162), Color.rgb(103, 58, 183), Color.rgb(244, 67, 54))
+        )
+        addText("语速：1.0", 18f, color = Color.rgb(45, 45, 45))
+        addText(
+            "已同步文件：${snapshot.files.joinToString("、").ifBlank { "等待首次分析写入" }}",
+            12f,
+            color = Color.rgb(110, 110, 110)
+        )
+        addText("目录：${snapshot.storagePath}", 12f, color = Color.rgb(130, 130, 130))
+        return ScrollView(context).apply { addView(container) }
     }
 
     private fun scriptCharacterListView(analysis: ScriptBrain.Analysis): ScrollView {
@@ -599,7 +736,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             4. 兼容 ttsrv.readTxtFile/writeTxtFile/httpGet/httpPost 的基础能力。
 
             当前限制：
-            1. 角色管理插件 UI 现在先做成阅读端角色列表，还不是完整原插件界面。
+            1. 角色管理插件已作为内置模块接入，当前先复刻主要角色管理界面和文件格式。
             2. 旧规则里如果依赖 TTS 私有 Android UI API，可能还会失败。
             3. 从 J.TTS 实时读取完整音色标签库还没接。
 

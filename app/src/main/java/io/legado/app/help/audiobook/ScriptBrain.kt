@@ -59,6 +59,16 @@ object ScriptBrain {
         val codeLength: Int,
     )
 
+    data class RoleManagerSnapshot(
+        val bookName: String,
+        val pluginName: String,
+        val pluginAuthor: String,
+        val pluginVersion: String,
+        val storagePath: String,
+        val characters: List<ScriptCharacter>,
+        val files: List<String>,
+    )
+
     fun analyzeCurrentChapter(context: Context): Analysis {
         val chapterPayload = currentChapterPayload()
         val importedRule = loadImportedRule(context)
@@ -137,6 +147,46 @@ object ScriptBrain {
             isJson = json != null,
             rawLength = raw.length,
             codeLength = code.length,
+        )
+    }
+
+    fun builtInRoleManagerInfo(context: Context): ImportedRuleInfo? {
+        val raw = runCatching {
+            context.applicationContext.assets.open(ROLE_MANAGER_PLUGIN_ASSET).use {
+                String(it.readBytes(), Charsets.UTF_8)
+            }
+        }.getOrNull()?.trim().orEmpty()
+        if (raw.isBlank()) return null
+        val json = runCatching {
+            if (raw.startsWith("[")) JSONArray(raw).optJSONObject(0) else JSONObject(raw)
+        }.getOrNull()
+        val code = firstText(json, "code", "js", "script", "content", "source")
+        return ImportedRuleInfo(
+            name = firstText(json, "name", "ruleName", "title", "displayName")
+                .ifBlank { "角色管理插件" },
+            author = firstText(json, "author", "creator", "user").ifBlank { "未知" },
+            version = firstText(json, "version", "versionName", "updateTime").ifBlank { "未标注" },
+            isJson = json != null,
+            rawLength = raw.length,
+            codeLength = code.length,
+        )
+    }
+
+    fun roleManagerSnapshot(context: Context): RoleManagerSnapshot {
+        val analysis = analyzeCurrentChapter(context.applicationContext)
+        val dir = scriptDir(context.applicationContext, analysis.bookName).apply { mkdirs() }
+        val characters = readRoleManagerCharacters(dir).ifEmpty { analysis.characters }
+        val info = builtInRoleManagerInfo(context.applicationContext)
+        return RoleManagerSnapshot(
+            bookName = analysis.bookName,
+            pluginName = info?.name ?: "角色管理插件",
+            pluginAuthor = info?.author ?: "未知",
+            pluginVersion = info?.version ?: "未标注",
+            storagePath = dir.absolutePath,
+            characters = characters,
+            files = ROLE_MANAGER_FILES
+                .map { it.replace("<book>", analysis.bookName.safeFileName()) }
+                .filter { File(dir, it).exists() }
         )
     }
 
@@ -432,6 +482,7 @@ object ScriptBrain {
         File(dir, "characters.json").writeText(analysis.characters.toJson().toString(2), Charsets.UTF_8)
         File(dir, "${analysis.chapterIndex}_${analysis.chapterTitle.safeFileName()}.json")
             .writeText(analysis.toJson().toString(2), Charsets.UTF_8)
+        syncRoleManagerFiles(dir, analysis)
     }
 
     private fun Analysis.toJson(): JSONObject {
@@ -468,6 +519,86 @@ object ScriptBrain {
                         .put("voiceTag", character.voiceTag)
                 )
             }
+        }
+    }
+
+    private fun List<ScriptCharacter>.toRoleManagerJson(): JSONArray {
+        return JSONArray().also { array ->
+            forEach { character ->
+                if (character.name == NARRATOR_ROLE) return@forEach
+                array.put(
+                    JSONObject()
+                        .put("name", character.name)
+                        .put("aliases", character.name)
+                        .put("gender", character.gender)
+                        .put("age", character.ageType.toRoleManagerAge(character.gender))
+                        .put("ageType", character.ageType)
+                        .put("voice", character.voiceTag)
+                        .put("voiceTag", character.voiceTag)
+                        .put("usageCount", 100)
+                        .put("source", "阅读端大脑")
+                )
+            }
+        }
+    }
+
+    private fun syncRoleManagerFiles(dir: File, analysis: Analysis) {
+        val bookFileName = "shuming.${analysis.bookName.safeFileName()}.json"
+        val records = analysis.characters.toRoleManagerJson()
+        File(dir, "characterRecords.json").writeText(records.toString(2), Charsets.UTF_8)
+        File(dir, bookFileName).writeText(records.toString(2), Charsets.UTF_8)
+        File(dir, "cunfang.txt").writeText(analysis.bookName, Charsets.UTF_8)
+        File(dir, "gengxin.json").writeText(
+            JSONObject()
+                .put("bookName", analysis.bookName)
+                .put("chapterIndex", analysis.chapterIndex)
+                .put("chapterTitle", analysis.chapterTitle)
+                .put("updatedAt", analysis.updatedAt)
+                .put("count", analysis.characters.size)
+                .put("source", analysis.source)
+                .toString(2),
+            Charsets.UTF_8
+        )
+        File(dir, "liebiao.json").writeText(
+            JSONArray().put(analysis.bookName).toString(2),
+            Charsets.UTF_8
+        )
+        File(dir, "fayinren.json").writeText(
+            JSONArray().also { array ->
+                analysis.characters
+                    .map { it.voiceTag }
+                    .filter { it.isNotBlank() && it != "待分配" }
+                    .distinct()
+                    .forEach { array.put(it) }
+            }.toString(2),
+            Charsets.UTF_8
+        )
+    }
+
+    private fun readRoleManagerCharacters(dir: File): List<ScriptCharacter> {
+        val file = File(dir, "characterRecords.json")
+        if (!file.exists()) return emptyList()
+        val array = runCatching { JSONArray(file.readText(Charsets.UTF_8)) }.getOrNull() ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val name = firstText(item, "name", "roleName", "character")
+                if (name.isBlank()) continue
+                val gender = firstText(item, "gender").ifBlank { "待定" }
+                val age = firstText(item, "ageType", "age").ifBlank { "青年" }
+                val voice = firstText(item, "voiceTag", "voice", "displayVoice").ifBlank { "待分配" }
+                add(ScriptCharacter(name, gender, age, voice))
+            }
+        }
+    }
+
+    private fun String.toRoleManagerAge(gender: String): String {
+        return when {
+            contains("童") || contains("儿童") -> if (gender == "男") "男孩" else "幼女"
+            contains("老") -> "老年"
+            contains("中") -> "中年"
+            contains("少") -> "少年"
+            else -> "青年"
         }
     }
 
@@ -638,6 +769,15 @@ object ScriptBrain {
     private val femaleKeywords = listOf("女", "娘", "妹", "姐", "姑", "婆", "姨", "母", "月", "雪", "柔", "婉")
     private val maleKeywords = listOf("男", "哥", "叔", "伯", "父", "爷", "掌柜", "凡", "轩", "辰", "峰")
     private val childKeywords = listOf("小", "童", "孩", "娃")
+    private const val ROLE_MANAGER_PLUGIN_ASSET = "defaultData/scriptBrain/role_manager_plugin_v2663.json"
+    private val ROLE_MANAGER_FILES = listOf(
+        "characterRecords.json",
+        "shuming.<book>.json",
+        "gengxin.json",
+        "cunfang.txt",
+        "liebiao.json",
+        "fayinren.json",
+    )
     private val oldKeywords = listOf("老", "婆", "爷", "伯", "叔", "掌柜", "嬷")
     private const val NARRATOR_ROLE = "旁白"
     private const val UNKNOWN_ROLE = "角色待定"
