@@ -188,6 +188,17 @@
             app:icon="@drawable/ic_edit"
             tools:ignore="HardcodedText" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_script_model_config"
+            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:contentDescription="分析模型配置"
+            android:tooltipText="分析模型配置"
+            app:icon="@drawable/ic_settings"
+            app:iconPadding="0dp"
+            tools:ignore="HardcodedText,UnusedAttribute" />
+
     </com.google.android.material.button.MaterialButtonGroup>
 
     <LinearLayout

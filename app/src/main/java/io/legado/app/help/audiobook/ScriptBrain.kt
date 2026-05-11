@@ -5,7 +5,10 @@ import android.os.Environment
 import com.script.ScriptBindings
 import com.script.rhino.RhinoScriptEngine
 import io.legado.app.help.http.okHttpClient
+import io.legado.app.model.AiBgMusic
 import io.legado.app.model.ReadBook
+import io.legado.app.utils.getPrefStringSet
+import io.legado.app.utils.putPrefStringSet
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -178,6 +181,29 @@ object ScriptBrain {
         saveImportedRule(context.applicationContext, file.readText(Charsets.UTF_8), alsoSaveToLibrary = false)
     }
 
+    fun selectedModelProfileNames(context: Context): Set<String> {
+        return context.applicationContext
+            .getPrefStringSet(KEY_SELECTED_MODEL_PROFILES, mutableSetOf())
+            ?.toSet()
+            .orEmpty()
+    }
+
+    fun saveSelectedModelProfileNames(context: Context, names: Set<String>) {
+        context.applicationContext.putPrefStringSet(
+            KEY_SELECTED_MODEL_PROFILES,
+            names.filter { it.isNotBlank() }.toMutableSet()
+        )
+    }
+
+    fun selectedModelProfiles(context: Context): List<AiBgMusic.ModelProfile> {
+        val profiles = AiBgMusic.modelProfiles()
+        if (profiles.isEmpty()) return emptyList()
+        val selectedNames = selectedModelProfileNames(context.applicationContext)
+        val selected = profiles.filter { it.name in selectedNames }
+        if (selected.isNotEmpty()) return selected
+        return AiBgMusic.selectedModelProfile()?.let { listOf(it) } ?: profiles.take(1)
+    }
+
     fun builtInRoleManagerInfo(context: Context): ImportedRuleInfo? {
         val raw = runCatching {
             context.applicationContext.assets.open(ROLE_MANAGER_PLUGIN_ASSET).use {
@@ -245,6 +271,7 @@ object ScriptBrain {
         ruleText: String,
     ): RuleRunResult {
         val logs = arrayListOf<String>()
+        val analysisModels = selectedModelProfiles(context)
         val payloadJson = JSONObject()
             .put("bookName", payload.bookName)
             .put("bookUrl", payload.bookUrl)
@@ -252,6 +279,8 @@ object ScriptBrain {
             .put("chapterIndex", payload.chapterIndex)
             .put("chapterTitle", payload.chapterTitle)
             .put("chapterText", payload.chapterText)
+            .put("analysisModel", analysisModels.firstOrNull()?.toScriptModelJson() ?: JSONObject.NULL)
+            .put("analysisModels", analysisModels.toScriptModelJsonArray())
 
         val bindings = ScriptBindings().apply {
             this["ttsrv"] = CompatTtsrv(context, payload.bookName, logs)
@@ -550,6 +579,24 @@ object ScriptBrain {
         }
     }
 
+    private fun List<AiBgMusic.ModelProfile>.toScriptModelJsonArray(): JSONArray {
+        return JSONArray().also { array ->
+            forEach { profile -> array.put(profile.toScriptModelJson()) }
+        }
+    }
+
+    private fun AiBgMusic.ModelProfile.toScriptModelJson(): JSONObject {
+        return JSONObject()
+            .put("name", name)
+            .put("provider", provider)
+            .put("modelUrl", modelUrl)
+            .put("baseUrl", modelUrl)
+            .put("modelName", modelName)
+            .put("model", modelName)
+            .put("modelKey", modelKey)
+            .put("apiKey", modelKey)
+    }
+
     private fun List<ScriptCharacter>.toRoleManagerJson(): JSONArray {
         return JSONArray().also { array ->
             forEach { character ->
@@ -694,6 +741,8 @@ object ScriptBrain {
     private fun scriptDir(context: Context, bookName: String): File {
         return File(globalDir(context), bookName.safeFileName())
     }
+
+    private const val KEY_SELECTED_MODEL_PROFILES = "script_brain_selected_model_profiles"
 
     private fun String.safeFileName(): String {
         return replace(Regex("[\\\\/:*?\"<>|\\r\\n]+"), "_").take(80).ifBlank { "未命名" }

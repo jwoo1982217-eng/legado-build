@@ -51,6 +51,13 @@ import kotlinx.coroutines.withContext
 
 class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud),
     SpeakEngineDialog.CallBack {
+    private data class ScriptModelPreset(
+        val provider: String,
+        val label: String,
+        val modelUrl: String,
+        val modelName: String,
+    )
+
     private val callBack: CallBack? get() = activity as? CallBack
     private val binding by viewBinding(DialogReadAloudBinding::bind)
     private val speakEngineSummary: String
@@ -185,6 +192,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         btnScriptCharacters.setOnClickListener { showScriptCharacters() }
         btnScriptPreview.setOnClickListener { showScriptPreview() }
         btnScriptRules.setOnClickListener { showScriptRules() }
+        btnScriptModelConfig.setOnClickListener { showScriptModelConfig() }
         tvPre.setOnClickListener { ReadBook.moveToPrevChapter(upContent = true, toLast = false) }
         tvNext.setOnClickListener { ReadBook.moveToNextChapter(true) }
         ivStop.setOnClickListener {
@@ -393,6 +401,320 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
         }
     }
+
+    private fun showScriptModelConfig() {
+        val context = requireContext()
+        val presets = scriptModelPresets()
+        val selectedProfile = AiBgMusic.selectedModelProfile()
+        val initialPreset = presets.firstOrNull { it.modelName == selectedProfile?.modelName }
+            ?: presets.firstOrNull { it.modelName == AiBgMusic.modelName }
+            ?: presets.first()
+        var currentProvider = selectedProfile?.provider
+            ?.ifBlank { initialPreset.provider }
+            ?: initialPreset.provider
+
+        fun label(text: String): TextView {
+            return TextView(context).apply {
+                this.text = text
+                textSize = 13f
+                setTextColor(Color.rgb(90, 90, 90))
+                setPadding(4.dpToPx(), 12.dpToPx(), 4.dpToPx(), 4.dpToPx())
+            }
+        }
+
+        fun field(hintText: String, value: String, inputTypeValue: Int = InputType.TYPE_CLASS_TEXT): EditText {
+            return EditText(context).apply {
+                hint = hintText
+                setText(value)
+                isSingleLine = true
+                inputType = inputTypeValue
+                setPadding(12.dpToPx(), 6.dpToPx(), 12.dpToPx(), 6.dpToPx())
+            }
+        }
+
+        fun actionButton(textValue: String): Button {
+            return Button(context).apply {
+                text = textValue
+                isAllCaps = false
+                textSize = 14f
+            }
+        }
+
+        val providerButton = actionButton("厂牌：$currentProvider")
+        val modelButton = actionButton("推荐模型：${initialPreset.label}")
+        val modelUrlInput = field(
+            "OpenAI 兼容接口地址",
+            selectedProfile?.modelUrl.orEmpty().ifBlank { AiBgMusic.modelUrl.ifBlank { initialPreset.modelUrl } },
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        )
+        val modelNameInput = field(
+            "模型名",
+            selectedProfile?.modelName.orEmpty().ifBlank { AiBgMusic.modelName.ifBlank { initialPreset.modelName } }
+        )
+        val modelKeyInput = field(
+            "API 密钥",
+            selectedProfile?.modelKey.orEmpty().ifBlank { AiBgMusic.modelKey },
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        )
+        val selectedSummary = TextView(context).apply {
+            textSize = 13f
+            setTextColor(Color.rgb(100, 100, 100))
+            setPadding(4.dpToPx(), 10.dpToPx(), 4.dpToPx(), 10.dpToPx())
+        }
+
+        fun updateSelectedSummary() {
+            val selected = ScriptBrain.selectedModelProfiles(context)
+            selectedSummary.text = if (selected.isEmpty()) {
+                "分析规则模型：未选择。保存后可供朗读规则通过 payload.analysisModel / payload.analysisModels 使用。"
+            } else {
+                "分析规则模型：${selected.joinToString("、") { it.name }}\n" +
+                        "当前主模型：${AiBgMusic.selectedModelProfileName.ifBlank { "未指定" }}"
+            }
+        }
+
+        fun applyPreset(preset: ScriptModelPreset) {
+            currentProvider = preset.provider
+            providerButton.text = "厂牌：${preset.provider}"
+            modelButton.text = "推荐模型：${preset.label}"
+            modelUrlInput.setText(preset.modelUrl)
+            modelNameInput.setText(preset.modelName)
+        }
+
+        providerButton.setOnClickListener {
+            val providers = presets.map { it.provider }.distinct()
+            context.selector("模型厂牌", providers) { _, index ->
+                val provider = providers[index]
+                val preset = presets.firstOrNull { it.provider == provider } ?: return@selector
+                applyPreset(preset)
+            }
+        }
+        modelButton.setOnClickListener {
+            val providerPresets = presets.filter { it.provider == currentProvider }
+            val labels = providerPresets.map { "${it.label}\n${it.modelName}" }
+            context.selector("推荐模型", labels) { _, index ->
+                providerPresets.getOrNull(index)?.let(::applyPreset)
+            }
+        }
+
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20.dpToPx(), 10.dpToPx(), 20.dpToPx(), 8.dpToPx())
+            addView(selectedSummary)
+            addView(providerButton)
+            addView(modelButton)
+            addView(label("接口地址"))
+            addView(modelUrlInput)
+            addView(label("模型名称"))
+            addView(modelNameInput)
+            addView(label("API 密钥"))
+            addView(modelKeyInput)
+        }
+
+        val buttonRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 14.dpToPx(), 0, 0)
+        }
+        buttonRow.addView(actionButton("保存到模型库").apply {
+            layoutParams = LinearLayout.LayoutParams(0, 48.dpToPx(), 1f).apply {
+                setMargins(0, 0, 4.dpToPx(), 0)
+            }
+            setOnClickListener {
+                saveScriptModelProfile(
+                    currentProvider,
+                    modelUrlInput.text?.toString().orEmpty(),
+                    modelNameInput.text?.toString().orEmpty(),
+                    modelKeyInput.text?.toString().orEmpty(),
+                    addToSelection = true,
+                )?.let {
+                    toastOnUi("已保存模型配置：${it.name}")
+                    updateSelectedSummary()
+                }
+            }
+        })
+        buttonRow.addView(actionButton("单选/多选").apply {
+            layoutParams = LinearLayout.LayoutParams(0, 48.dpToPx(), 1f).apply {
+                setMargins(4.dpToPx(), 0, 4.dpToPx(), 0)
+            }
+            setOnClickListener {
+                showScriptModelSelectionDialog {
+                    updateSelectedSummary()
+                    AiBgMusic.selectedModelProfile()?.let { profile ->
+                        currentProvider = profile.provider.ifBlank { currentProvider }
+                        providerButton.text = "厂牌：$currentProvider"
+                        modelButton.text = "推荐模型：${profile.modelName}"
+                        modelUrlInput.setText(profile.modelUrl)
+                        modelNameInput.setText(profile.modelName)
+                        modelKeyInput.setText(profile.modelKey)
+                    }
+                }
+            }
+        })
+        buttonRow.addView(actionButton("保存并测试").apply {
+            layoutParams = LinearLayout.LayoutParams(0, 48.dpToPx(), 1f).apply {
+                setMargins(4.dpToPx(), 0, 0, 0)
+            }
+            setOnClickListener {
+                val profile = saveScriptModelProfile(
+                    currentProvider,
+                    modelUrlInput.text?.toString().orEmpty(),
+                    modelNameInput.text?.toString().orEmpty(),
+                    modelKeyInput.text?.toString().orEmpty(),
+                    addToSelection = true,
+                ) ?: return@setOnClickListener
+                updateSelectedSummary()
+                toastOnUi("正在测试：${profile.modelName}")
+                lifecycleScope.launch {
+                    val result = withContext(Dispatchers.IO) { AiBgMusic.testModel() }
+                    result.onSuccess {
+                        toastOnUi("测试成功")
+                    }.onFailure {
+                        toastOnUi("测试失败：${it.localizedMessage ?: it.javaClass.simpleName}")
+                    }
+                }
+            }
+        })
+        container.addView(buttonRow)
+        updateSelectedSummary()
+
+        AlertDialog.Builder(context)
+            .setTitle("分析模型配置")
+            .setView(ScrollView(context).apply { addView(container) })
+            .setPositiveButton("保存并使用") { _, _ ->
+                saveScriptModelProfile(
+                    currentProvider,
+                    modelUrlInput.text?.toString().orEmpty(),
+                    modelNameInput.text?.toString().orEmpty(),
+                    modelKeyInput.text?.toString().orEmpty(),
+                    addToSelection = true,
+                    singleSelection = true,
+                )
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun saveScriptModelProfile(
+        provider: String,
+        modelUrl: String,
+        modelName: String,
+        modelKey: String,
+        addToSelection: Boolean,
+        singleSelection: Boolean = false,
+    ): AiBgMusic.ModelProfile? {
+        val url = modelUrl.trim()
+        val model = modelName.trim()
+        if (url.isBlank() || model.isBlank()) {
+            toastOnUi("请先选择厂牌/模型，或填写接口地址和模型名")
+            return null
+        }
+        val normalizedProvider = provider.trim().ifBlank { "自定义" }
+        val profileName = "$normalizedProvider · $model"
+        val profile = AiBgMusic.ModelProfile(
+            name = profileName,
+            provider = normalizedProvider,
+            modelUrl = url,
+            modelName = model,
+            modelKey = modelKey.trim(),
+        )
+        val profiles = AiBgMusic.modelProfiles().toMutableList()
+        val index = profiles.indexOfFirst { it.name == profileName }
+        if (index >= 0) profiles[index] = profile else profiles.add(profile)
+        AiBgMusic.saveModelProfiles(profiles)
+        AiBgMusic.selectModelProfile(profile)
+        if (addToSelection) {
+            val names = if (singleSelection) {
+                setOf(profile.name)
+            } else {
+                ScriptBrain.selectedModelProfileNames(requireContext()) + profile.name
+            }
+            ScriptBrain.saveSelectedModelProfileNames(requireContext(), names)
+        }
+        return profile
+    }
+
+    private fun showScriptModelSelectionDialog(onChanged: () -> Unit) {
+        val profiles = AiBgMusic.modelProfiles()
+        if (profiles.isEmpty()) {
+            toastOnUi("还没有模型配置，请先保存一个模型")
+            return
+        }
+        val items = listOf("单选模型", "多选模型")
+        requireContext().selector("模型配置库", items) { _, index ->
+            when (index) {
+                0 -> showScriptSingleModelPicker(profiles, onChanged)
+                1 -> showScriptMultiModelPicker(profiles, onChanged)
+            }
+        }
+    }
+
+    private fun showScriptSingleModelPicker(
+        profiles: List<AiBgMusic.ModelProfile>,
+        onChanged: () -> Unit,
+    ) {
+        val labels = profiles.map {
+            buildString {
+                if (it.name == AiBgMusic.selectedModelProfileName) append("✓ ")
+                append(it.name)
+                append("\n")
+                append(it.modelUrl)
+            }
+        }
+        requireContext().selector("单选分析模型", labels) { _, index ->
+            val profile = profiles.getOrNull(index) ?: return@selector
+            AiBgMusic.selectModelProfile(profile)
+            ScriptBrain.saveSelectedModelProfileNames(requireContext(), setOf(profile.name))
+            toastOnUi("已选择：${profile.name}")
+            onChanged()
+        }
+    }
+
+    private fun showScriptMultiModelPicker(
+        profiles: List<AiBgMusic.ModelProfile>,
+        onChanged: () -> Unit,
+    ) {
+        val selectedNames = ScriptBrain.selectedModelProfileNames(requireContext()).toMutableSet()
+        if (selectedNames.isEmpty() && AiBgMusic.selectedModelProfileName.isNotBlank()) {
+            selectedNames.add(AiBgMusic.selectedModelProfileName)
+        }
+        val labels = profiles.map { "${it.name}  ·  ${it.modelName}" }.toTypedArray()
+        val checked = profiles.map { it.name in selectedNames }.toBooleanArray()
+        AlertDialog.Builder(requireContext())
+            .setTitle("多选分析模型")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                val name = profiles.getOrNull(which)?.name ?: return@setMultiChoiceItems
+                if (isChecked) selectedNames.add(name) else selectedNames.remove(name)
+            }
+            .setPositiveButton("保存") { _, _ ->
+                ScriptBrain.saveSelectedModelProfileNames(requireContext(), selectedNames)
+                profiles.firstOrNull { it.name in selectedNames }?.let(AiBgMusic::selectModelProfile)
+                toastOnUi(
+                    if (selectedNames.isEmpty()) "已清空分析模型选择"
+                    else "已选择 ${selectedNames.size} 个分析模型"
+                )
+                onChanged()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun scriptModelPresets(): List<ScriptModelPreset> = listOf(
+        ScriptModelPreset("OpenAI", "GPT-4.1 mini（结构化稳定）", "https://api.openai.com/v1", "gpt-4.1-mini"),
+        ScriptModelPreset("OpenAI", "GPT-4o mini（快，成本低）", "https://api.openai.com/v1", "gpt-4o-mini"),
+        ScriptModelPreset("DeepSeek", "DeepSeek Chat（通用）", "https://api.deepseek.com", "deepseek-chat"),
+        ScriptModelPreset("DeepSeek", "DeepSeek Reasoner（推理更强）", "https://api.deepseek.com", "deepseek-reasoner"),
+        ScriptModelPreset("智谱", "GLM-4.5-Air（推荐）", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5-air"),
+        ScriptModelPreset("智谱", "GLM-4.5-Flash（快）", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5-flash"),
+        ScriptModelPreset("通义千问", "Qwen Plus（结构化稳定）", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
+        ScriptModelPreset("通义千问", "Qwen Flash（快）", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-flash"),
+        ScriptModelPreset("Kimi", "Kimi Latest（长文本友好）", "https://api.moonshot.cn/v1", "kimi-latest"),
+        ScriptModelPreset("豆包", "Doubao Seed 1.6 Flash（快）", "https://ark.cn-beijing.volces.com/api/v3", "doubao-seed-1-6-flash"),
+        ScriptModelPreset("百度千帆", "ERNIE 4.5 Turbo（通用）", "https://qianfan.baidubce.com/v2", "ernie-4.5-turbo-128k"),
+        ScriptModelPreset("腾讯混元", "Hunyuan Turbo（通用）", "https://api.hunyuan.cloud.tencent.com/v1", "hunyuan-turbo-latest"),
+        ScriptModelPreset("MiniMax", "MiniMax Text 01（长文本）", "https://api.minimax.chat/v1", "MiniMax-Text-01"),
+        ScriptModelPreset("Gemini", "Gemini 2.5 Flash（快）", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+        ScriptModelPreset("OpenRouter", "OpenRouter Auto（统一网关）", "https://openrouter.ai/api/v1", "openrouter/auto"),
+        ScriptModelPreset("自定义", "手动填写 OpenAI 兼容模型", "", ""),
+    )
 
     private fun showScriptCharacters() {
         val snapshot = ScriptBrain.roleManagerSnapshot(requireContext())
