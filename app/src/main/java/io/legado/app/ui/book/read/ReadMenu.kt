@@ -655,8 +655,8 @@ class ReadMenu @JvmOverloads constructor(
                 id = "read_aloud",
                 iconRes = R.drawable.ic_read_aloud,
                 description = context.getString(R.string.read_aloud),
-                onClick = { runMenuOut { callBack.onClickReadAloud() } },
-                onLongClick = { runMenuOut { callBack.onClickReadAloud() } }
+                onClick = { runMenuOut { callBack.showReadAloudDialog() } },
+                onLongClick = { runMenuOut { callBack.showReadAloudDialog() } }
             ),
             ToolButton(
                 id = "setting",

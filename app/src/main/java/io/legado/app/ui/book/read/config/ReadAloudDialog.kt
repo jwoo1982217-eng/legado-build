@@ -6,6 +6,9 @@ import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.os.Bundle
 import android.view.View
+import android.widget.ScrollView
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import com.google.android.material.slider.Slider
 import io.legado.app.R
@@ -13,6 +16,7 @@ import io.legado.app.base.BaseBottomSheetDialogFragment
 import io.legado.app.constant.EventBus
 import io.legado.app.data.appDb
 import io.legado.app.databinding.DialogReadAloudBinding
+import io.legado.app.help.audiobook.ScriptBrain
 import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.lib.dialogs.selector
@@ -24,6 +28,7 @@ import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.utils.GSON
 import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.StringUtils
+import io.legado.app.utils.dpToPx
 import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.observeEvent
 import io.legado.app.utils.toastOnUi
@@ -129,6 +134,9 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         btnAiBgmConfig.setOnClickListener {
             showAiBgMusicPlaybackConfig()
         }
+        btnScriptCharacters.setOnClickListener { showScriptCharacters() }
+        btnScriptPreview.setOnClickListener { showScriptPreview() }
+        btnScriptRules.setOnClickListener { showScriptRules() }
         tvPre.setOnClickListener { ReadBook.moveToPrevChapter(upContent = true, toLast = false) }
         tvNext.setOnClickListener { ReadBook.moveToNextChapter(true) }
         ivStop.setOnClickListener {
@@ -322,6 +330,89 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 3 -> callBack?.showAiBgMusicAnalysis()
                 4 -> callBack?.reanalyzeAiBgMusic()
             }
+        }
+    }
+
+    private fun showScriptCharacters() {
+        val analysis = ScriptBrain.analyzeCurrentChapter(requireContext())
+        val body = buildString {
+            appendLine("${analysis.chapterTitle}：共 ${analysis.characters.size} 个角色")
+            appendLine()
+            if (analysis.characters.isEmpty()) {
+                appendLine("当前章暂未识别到明确角色。")
+                appendLine("台词本里可能会先显示“角色待定”，后续接入 AI/朗读规则后再自动分配。")
+            } else {
+                analysis.characters.forEachIndexed { index, character ->
+                    appendLine("${index + 1}. ${character.name}")
+                    appendLine("   ${character.gender} / ${character.ageType} / ${character.voiceTag}")
+                }
+            }
+        }
+        showTextDialog("角色表", body)
+    }
+
+    private fun showScriptPreview() {
+        val analysis = ScriptBrain.analyzeCurrentChapter(requireContext())
+        val body = buildString {
+            appendLine("${analysis.chapterTitle}")
+            appendLine("台词行：${analysis.lines.size}，角色：${analysis.characters.size}")
+            appendLine()
+            analysis.lines.take(120).forEach { line ->
+                appendLine("${line.index.toString().padStart(2, '0')}  ${line.roleName}  ${line.voiceTag}")
+                appendLine("    ${line.text.take(120)}")
+            }
+            if (analysis.lines.size > 120) {
+                appendLine()
+                appendLine("已显示前 120 行，其余已保存到本地分析文件。")
+            }
+        }
+        showTextDialog("台词本", body)
+    }
+
+    private fun showScriptRules() {
+        val body = """
+            当前是开源阅读端“大脑模块”第一版。
+
+            已启用：
+            1. 本地规则拆分旁白和对白。
+            2. 尝试从“某某说/问/道/喊”等结构识别角色。
+            3. 生成角色表和台词本，并保存到阅读私有目录。
+
+            还没接入：
+            1. AI 整章角色分析。
+            2. 旧朗读规则 JS 兼容导入。
+            3. 从 J.TTS 实时读取完整音色标签库。
+
+            这版先用来验证入口、数据结构和 UI 工作流，后面再把 AI/朗读规则接进来。
+        """.trimIndent()
+        AlertDialog.Builder(requireContext())
+            .setTitle("分析规则")
+            .setView(dialogTextView(body))
+            .setNegativeButton("重新分析本章") { _, _ ->
+                val analysis = ScriptBrain.analyzeCurrentChapter(requireContext())
+                toastOnUi("已重新分析：${analysis.lines.size} 行台词")
+            }
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun showTextDialog(title: String, body: String) {
+        AlertDialog.Builder(requireContext())
+            .setTitle(title)
+            .setView(dialogTextView(body))
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun dialogTextView(body: String): ScrollView {
+        val textView = TextView(requireContext()).apply {
+            text = body
+            textSize = 15f
+            setTextIsSelectable(true)
+            setPadding(20.dpToPx(), 12.dpToPx(), 20.dpToPx(), 12.dpToPx())
+        }
+        return ScrollView(requireContext()).apply {
+            addView(textView)
         }
     }
 
