@@ -134,7 +134,17 @@
 
     </com.google.android.material.button.MaterialButtonGroup>
 
+    <io.legado.app.lib.theme.view.ThemeSwitch
+        android:id="@+id/cb_script_brain_enabled"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginVertical="4dp"
+        android:contentDescription="有声书模式"
+        android:text="有声书模式"
+        tools:ignore="HardcodedText,TouchTargetSizeCheck" />
+
     <com.google.android.material.button.MaterialButtonGroup
+        android:id="@+id/layout_script_brain_tools"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="3dp"
@@ -249,15 +259,6 @@
             android:textSize="14sp" />
 
     </com.google.android.material.button.MaterialButtonGroup>
-
-    <io.legado.app.lib.theme.view.ThemeSwitch
-        android:id="@+id/cb_script_brain_enabled"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginVertical="4dp"
-        android:contentDescription="阅读端大脑"
-        android:text="阅读端大脑"
-        tools:ignore="HardcodedText,TouchTargetSizeCheck" />
 
     <LinearLayout
         android:layout_width="match_parent"

@@ -59,6 +59,15 @@ object ScriptBrain {
         val codeLength: Int,
     )
 
+    data class SavedRule(
+        val id: String,
+        val name: String,
+        val author: String,
+        val version: String,
+        val updatedAt: Long,
+        val isActive: Boolean,
+    )
+
     data class RoleManagerSnapshot(
         val bookName: String,
         val pluginName: String,
@@ -113,13 +122,16 @@ object ScriptBrain {
         )
     }
 
-    fun saveImportedRule(context: Context, raw: String) {
+    fun saveImportedRule(context: Context, raw: String, alsoSaveToLibrary: Boolean = true) {
         val normalized = normalizeImportedRule(raw)
         val code = extractRuleCode(normalized)
         require(code.isNotBlank()) { "朗读规则为空" }
         globalDir(context.applicationContext).mkdirs()
         importedRuleFile(context.applicationContext).writeText(code, Charsets.UTF_8)
         importedRuleJsonFile(context.applicationContext).writeText(normalized, Charsets.UTF_8)
+        if (alsoSaveToLibrary) {
+            saveRuleToLibrary(context.applicationContext, normalized)
+        }
     }
 
     fun loadImportedRule(context: Context): String {
@@ -136,18 +148,34 @@ object ScriptBrain {
     fun importedRuleInfo(context: Context): ImportedRuleInfo? {
         val raw = loadImportedRuleRaw(context).trim()
         if (raw.isBlank()) return null
-        val code = extractRuleCode(raw)
-        val json = raw.takeIf { it.startsWith("{") }?.let {
-            runCatching { JSONObject(it) }.getOrNull()
-        }
-        return ImportedRuleInfo(
-            name = firstText(json, "name", "ruleName", "title", "displayName").ifBlank { "导入朗读规则" },
-            author = firstText(json, "author", "creator", "user").ifBlank { "未知" },
-            version = firstText(json, "version", "versionName", "updateTime").ifBlank { "未标注" },
-            isJson = json != null,
-            rawLength = raw.length,
-            codeLength = code.length,
-        )
+        return ruleInfoFromRaw(raw)
+    }
+
+    fun savedRules(context: Context): List<SavedRule> {
+        val activeRaw = loadImportedRuleRaw(context.applicationContext).trim()
+        val dir = ruleLibraryDir(context.applicationContext)
+        return dir.listFiles { file -> file.isFile && file.extension.equals("json", ignoreCase = true) }
+            ?.mapNotNull { file ->
+                val raw = runCatching { file.readText(Charsets.UTF_8) }.getOrNull()?.trim().orEmpty()
+                if (raw.isBlank()) return@mapNotNull null
+                val info = ruleInfoFromRaw(raw)
+                SavedRule(
+                    id = file.nameWithoutExtension,
+                    name = info.name,
+                    author = info.author,
+                    version = info.version,
+                    updatedAt = file.lastModified(),
+                    isActive = raw == activeRaw,
+                )
+            }
+            ?.sortedWith(compareByDescending<SavedRule> { it.isActive }.thenBy { it.name })
+            .orEmpty()
+    }
+
+    fun useSavedRule(context: Context, id: String) {
+        val file = File(ruleLibraryDir(context.applicationContext), "${id.safeFileName()}.json")
+        require(file.exists()) { "规则不存在" }
+        saveImportedRule(context.applicationContext, file.readText(Charsets.UTF_8), alsoSaveToLibrary = false)
     }
 
     fun builtInRoleManagerInfo(context: Context): ImportedRuleInfo? {
@@ -602,6 +630,29 @@ object ScriptBrain {
         }
     }
 
+    private fun ruleInfoFromRaw(raw: String): ImportedRuleInfo {
+        val code = extractRuleCode(raw)
+        val json = raw.takeIf { it.trim().startsWith("{") }?.let {
+            runCatching { JSONObject(it) }.getOrNull()
+        }
+        return ImportedRuleInfo(
+            name = firstText(json, "name", "ruleName", "title", "displayName").ifBlank { "导入朗读规则" },
+            author = firstText(json, "author", "creator", "user").ifBlank { "未知" },
+            version = firstText(json, "version", "versionName", "updateTime").ifBlank { "未标注" },
+            isJson = json != null,
+            rawLength = raw.length,
+            codeLength = code.length,
+        )
+    }
+
+    private fun saveRuleToLibrary(context: Context, normalized: String) {
+        val info = ruleInfoFromRaw(normalized)
+        val id = "${info.name}_${info.author}_${info.version}_${Integer.toHexString(normalized.hashCode())}"
+            .safeFileName()
+        val dir = ruleLibraryDir(context).apply { mkdirs() }
+        File(dir, "$id.json").writeText(normalized, Charsets.UTF_8)
+    }
+
     private fun extractRuleCode(raw: String): String {
         val text = raw.trim()
         if (!text.startsWith("{")) return text
@@ -629,6 +680,10 @@ object ScriptBrain {
 
     private fun importedRuleJsonFile(context: Context): File {
         return File(globalDir(context), "imported_speech_rule.json")
+    }
+
+    private fun ruleLibraryDir(context: Context): File {
+        return File(globalDir(context), "rule-library")
     }
 
     private fun globalDir(context: Context): File {

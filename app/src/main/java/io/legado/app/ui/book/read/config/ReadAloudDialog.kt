@@ -16,6 +16,7 @@ import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -62,6 +63,29 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
             return GSON.fromJsonObject<SelectItem<String>>(ttsEngine).getOrNull()?.title
                 ?: getString(R.string.system_tts)
+        }
+    private val importSpeechRuleJson =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri ?: return@registerForActivityResult
+            val appContext = context?.applicationContext ?: return@registerForActivityResult
+            toastOnUi("正在导入完整朗读规则 JSON...")
+            lifecycleScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val text = appContext.contentResolver.openInputStream(uri)?.use {
+                            String(it.readBytes(), Charsets.UTF_8)
+                        }.orEmpty()
+                        require(text.isNotBlank()) { "文件内容为空" }
+                        ScriptBrain.saveImportedRule(appContext, text)
+                        ScriptBrain.importedRuleInfo(appContext)
+                    }
+                }
+                result.onSuccess { info ->
+                    toastOnUi("已导入朗读规则：${info?.name.orEmpty().ifBlank { "完整 JSON" }}")
+                }.onFailure {
+                    toastOnUi("导入失败：${it.localizedMessage ?: it.javaClass.simpleName}")
+                }
+            }
         }
 
     override fun onStart() {
@@ -129,6 +153,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAudiobookAutoMerge.isChecked = AppConfig.audiobookAutoMergeAfterRead
         cbAudiobookConvertMp3.isChecked = AppConfig.audiobookConvertMergedToMp3
         cbScriptBrainEnabled.isChecked = AppConfig.scriptBrainEnabled
+        upScriptBrainToolsVisible(AppConfig.scriptBrainEnabled)
         upSpeakEngineSummary()
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
         upSeekTimer()
@@ -150,10 +175,11 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
         cbScriptBrainEnabled.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.scriptBrainEnabled = isChecked
+            upScriptBrainToolsVisible(isChecked)
             if (isChecked) {
-                toastOnUi("阅读端大脑已开启")
+                toastOnUi("有声书模式已开启")
             } else {
-                toastOnUi("阅读端大脑已关闭，继续兼容 TTS 端朗读规则")
+                toastOnUi("有声书模式已关闭，继续兼容 TTS 端朗读规则")
             }
         }
         btnScriptCharacters.setOnClickListener { showScriptCharacters() }
@@ -306,6 +332,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
     }
 
+    private fun upScriptBrainToolsVisible(enabled: Boolean) {
+        binding.layoutScriptBrainTools.visible(enabled)
+    }
+
     private fun upPlayState() {
         if (!BaseReadAloudService.pause) {
             binding.ivPlayPause.icon =
@@ -420,10 +450,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             container.addView(row)
         }
 
-        addButtonRow(
-            listOf("保存密钥", "恢复密钥"),
-            listOf(Color.rgb(76, 175, 80), Color.rgb(255, 152, 0))
-        )
         addText("内置模块：${snapshot.pluginName}  v${snapshot.pluginVersion} / ${snapshot.pluginAuthor}", 13f, color = Color.rgb(100, 100, 100))
         addButtonRow(
             listOf("新增角色", "创建新书", "备份恢复", "管理书籍"),
@@ -529,7 +555,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
         val info = ScriptBrain.importedRuleInfo(context)
         addText("${analysis.chapterTitle}：角色列表（已标记 ${analysis.characters.size}）", 16f, true)
-        addText("来源：${analysis.source}，阅读端大脑：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭"}", 13f, color = Color.rgb(100, 100, 100))
+        addText("来源：${analysis.source}，有声书模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭"}", 13f, color = Color.rgb(100, 100, 100))
         if (info != null) {
             addText("规则：${info.name} / ${if (info.isJson) "完整 JSON" else "JS"}", 13f, color = Color.rgb(100, 100, 100))
         }
@@ -579,7 +605,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             appendLine("${analysis.chapterTitle}")
             appendLine("台词行：${analysis.lines.size}，角色：${analysis.characters.size}")
             appendLine("来源：${analysis.source}")
-            appendLine("阅读端大脑：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
+            appendLine("有声书模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
             if (analysis.error.isNotBlank()) {
                 appendLine("提示：${analysis.error}")
             }
@@ -600,6 +626,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         val imported = ScriptBrain.hasImportedRule(requireContext())
         val items = mutableListOf(
             if (imported) "粘贴/替换朗读规则" else "粘贴导入朗读规则",
+            "从文件导入完整朗读规则 JSON",
+            "规则库/选择规则",
             "运行当前章",
             "查看已导入规则",
             "清空已导入规则",
@@ -608,10 +636,42 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         context?.selector("分析规则", items) { _, index ->
             when (index) {
                 0 -> showPasteScriptRuleDialog()
-                1 -> runScriptRuleForCurrentChapter()
-                2 -> showImportedScriptRule()
-                3 -> clearImportedScriptRule()
-                4 -> showScriptRuleHelp()
+                1 -> importSpeechRuleJson.launch(arrayOf("application/json", "text/*", "*/*"))
+                2 -> showScriptRuleLibrary()
+                3 -> runScriptRuleForCurrentChapter()
+                4 -> showImportedScriptRule()
+                5 -> clearImportedScriptRule()
+                6 -> showScriptRuleHelp()
+            }
+        }
+    }
+
+    private fun showScriptRuleLibrary() {
+        val rules = ScriptBrain.savedRules(requireContext())
+        if (rules.isEmpty()) {
+            toastOnUi("规则库还没有规则，请先导入完整朗读规则 JSON")
+            return
+        }
+        val labels = rules.map { rule ->
+            buildString {
+                if (rule.isActive) append("✓ ")
+                append(rule.name)
+                append("  v")
+                append(rule.version)
+                if (rule.author.isNotBlank() && rule.author != "未知") {
+                    append(" / ")
+                    append(rule.author)
+                }
+            }
+        }
+        context?.selector("朗读规则库", labels) { _, index ->
+            val rule = rules.getOrNull(index) ?: return@selector
+            runCatching {
+                ScriptBrain.useSavedRule(requireContext(), rule.id)
+            }.onSuccess {
+                toastOnUi("已启用规则：${rule.name}")
+            }.onFailure {
+                toastOnUi("启用失败：${it.localizedMessage ?: it.javaClass.simpleName}")
             }
         }
     }
@@ -727,13 +787,15 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     private fun showScriptRuleHelp() {
         val body = """
-            当前是开源阅读端“大脑模块”第一版。
+            当前是开源阅读端“有声书模式”第一版。
 
             已启用：
             1. 可以粘贴导入完整旧 TTS 朗读规则 JSON，也兼容临时粘贴 JS。
-            2. 可以运行当前章，调用 SpeechRuleJS.prepareChapterAudioQueue。
-            3. 运行结果会转换成台词本，并更新角色表。
-            4. 兼容 ttsrv.readTxtFile/writeTxtFile/httpGet/httpPost 的基础能力。
+            2. 可以从手机文件直接选择完整朗读规则 JSON 导入。
+            3. 导入后的规则会进入规则库，可以点选启用。
+            4. 可以运行当前章，调用 SpeechRuleJS.prepareChapterAudioQueue。
+            5. 运行结果会转换成台词本，并更新角色表。
+            6. 兼容 ttsrv.readTxtFile/writeTxtFile/httpGet/httpPost 的基础能力。
 
             当前限制：
             1. 角色管理插件已作为内置模块接入，当前先复刻主要角色管理界面和文件格式。
