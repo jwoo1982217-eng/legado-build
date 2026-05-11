@@ -405,9 +405,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     private fun showScriptModelConfig() {
         val context = requireContext()
         val presets = scriptModelPresets()
-        val selectedProfile = AiBgMusic.selectedModelProfile()
+        val selectedProfile = ScriptBrain.selectedModelProfile(context)
         val initialPreset = presets.firstOrNull { it.modelName == selectedProfile?.modelName }
-            ?: presets.firstOrNull { it.modelName == AiBgMusic.modelName }
             ?: presets.first()
         var currentProvider = selectedProfile?.provider
             ?.ifBlank { initialPreset.provider }
@@ -444,16 +443,16 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         val modelButton = actionButton("推荐模型：${initialPreset.label}")
         val modelUrlInput = field(
             "OpenAI 兼容接口地址",
-            selectedProfile?.modelUrl.orEmpty().ifBlank { AiBgMusic.modelUrl.ifBlank { initialPreset.modelUrl } },
+            selectedProfile?.modelUrl.orEmpty().ifBlank { initialPreset.modelUrl },
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         )
         val modelNameInput = field(
             "模型名",
-            selectedProfile?.modelName.orEmpty().ifBlank { AiBgMusic.modelName.ifBlank { initialPreset.modelName } }
+            selectedProfile?.modelName.orEmpty().ifBlank { initialPreset.modelName }
         )
         val modelKeyInput = field(
             "API 密钥",
-            selectedProfile?.modelKey.orEmpty().ifBlank { AiBgMusic.modelKey },
+            selectedProfile?.modelKey.orEmpty(),
             InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         )
         val selectedSummary = TextView(context).apply {
@@ -468,7 +467,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 "分析规则模型：未选择。保存后可供朗读规则通过 payload.analysisModel / payload.analysisModels 使用。"
             } else {
                 "分析规则模型：${selected.joinToString("、") { it.name }}\n" +
-                        "当前主模型：${AiBgMusic.selectedModelProfileName.ifBlank { "未指定" }}"
+                        "当前主模型：${ScriptBrain.selectedModelProfileName(context).ifBlank { "未指定" }}"
             }
         }
 
@@ -538,7 +537,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             setOnClickListener {
                 showScriptModelSelectionDialog {
                     updateSelectedSummary()
-                    AiBgMusic.selectedModelProfile()?.let { profile ->
+                    ScriptBrain.selectedModelProfile(context)?.let { profile ->
                         currentProvider = profile.provider.ifBlank { currentProvider }
                         providerButton.text = "厂牌：$currentProvider"
                         modelButton.text = "推荐模型：${profile.modelName}"
@@ -564,7 +563,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 updateSelectedSummary()
                 toastOnUi("正在测试：${profile.modelName}")
                 lifecycleScope.launch {
-                    val result = withContext(Dispatchers.IO) { AiBgMusic.testModel() }
+                    val result = withContext(Dispatchers.IO) { ScriptBrain.testModel(profile) }
                     result.onSuccess {
                         toastOnUi("测试成功")
                     }.onFailure {
@@ -600,7 +599,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         modelKey: String,
         addToSelection: Boolean,
         singleSelection: Boolean = false,
-    ): AiBgMusic.ModelProfile? {
+    ): ScriptBrain.AnalysisModelProfile? {
         val url = modelUrl.trim()
         val model = modelName.trim()
         if (url.isBlank() || model.isBlank()) {
@@ -609,18 +608,18 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
         val normalizedProvider = provider.trim().ifBlank { "自定义" }
         val profileName = "$normalizedProvider · $model"
-        val profile = AiBgMusic.ModelProfile(
+        val profile = ScriptBrain.AnalysisModelProfile(
             name = profileName,
             provider = normalizedProvider,
             modelUrl = url,
             modelName = model,
             modelKey = modelKey.trim(),
         )
-        val profiles = AiBgMusic.modelProfiles().toMutableList()
+        val profiles = ScriptBrain.modelProfiles(requireContext()).toMutableList()
         val index = profiles.indexOfFirst { it.name == profileName }
         if (index >= 0) profiles[index] = profile else profiles.add(profile)
-        AiBgMusic.saveModelProfiles(profiles)
-        AiBgMusic.selectModelProfile(profile)
+        ScriptBrain.saveModelProfiles(requireContext(), profiles)
+        ScriptBrain.saveSelectedModelProfileName(requireContext(), profile.name)
         if (addToSelection) {
             val names = if (singleSelection) {
                 setOf(profile.name)
@@ -633,7 +632,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun showScriptModelSelectionDialog(onChanged: () -> Unit) {
-        val profiles = AiBgMusic.modelProfiles()
+        val profiles = ScriptBrain.modelProfiles(requireContext())
         if (profiles.isEmpty()) {
             toastOnUi("还没有模型配置，请先保存一个模型")
             return
@@ -648,12 +647,13 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun showScriptSingleModelPicker(
-        profiles: List<AiBgMusic.ModelProfile>,
+        profiles: List<ScriptBrain.AnalysisModelProfile>,
         onChanged: () -> Unit,
     ) {
+        val selectedName = ScriptBrain.selectedModelProfileName(requireContext())
         val labels = profiles.map {
             buildString {
-                if (it.name == AiBgMusic.selectedModelProfileName) append("✓ ")
+                if (it.name == selectedName) append("✓ ")
                 append(it.name)
                 append("\n")
                 append(it.modelUrl)
@@ -661,20 +661,20 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
         requireContext().selector("单选分析模型", labels) { _, index ->
             val profile = profiles.getOrNull(index) ?: return@selector
-            AiBgMusic.selectModelProfile(profile)
-            ScriptBrain.saveSelectedModelProfileNames(requireContext(), setOf(profile.name))
+            ScriptBrain.selectModelProfile(requireContext(), profile)
             toastOnUi("已选择：${profile.name}")
             onChanged()
         }
     }
 
     private fun showScriptMultiModelPicker(
-        profiles: List<AiBgMusic.ModelProfile>,
+        profiles: List<ScriptBrain.AnalysisModelProfile>,
         onChanged: () -> Unit,
     ) {
         val selectedNames = ScriptBrain.selectedModelProfileNames(requireContext()).toMutableSet()
-        if (selectedNames.isEmpty() && AiBgMusic.selectedModelProfileName.isNotBlank()) {
-            selectedNames.add(AiBgMusic.selectedModelProfileName)
+        val selectedName = ScriptBrain.selectedModelProfileName(requireContext())
+        if (selectedNames.isEmpty() && selectedName.isNotBlank()) {
+            selectedNames.add(selectedName)
         }
         val labels = profiles.map { "${it.name}  ·  ${it.modelName}" }.toTypedArray()
         val checked = profiles.map { it.name in selectedNames }.toBooleanArray()
@@ -686,7 +686,9 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
             .setPositiveButton("保存") { _, _ ->
                 ScriptBrain.saveSelectedModelProfileNames(requireContext(), selectedNames)
-                profiles.firstOrNull { it.name in selectedNames }?.let(AiBgMusic::selectModelProfile)
+                profiles.firstOrNull { it.name in selectedNames }?.let {
+                    ScriptBrain.saveSelectedModelProfileName(requireContext(), it.name)
+                }
                 toastOnUi(
                     if (selectedNames.isEmpty()) "已清空分析模型选择"
                     else "已选择 ${selectedNames.size} 个分析模型"

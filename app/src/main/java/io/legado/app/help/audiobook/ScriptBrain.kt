@@ -5,9 +5,10 @@ import android.os.Environment
 import com.script.ScriptBindings
 import com.script.rhino.RhinoScriptEngine
 import io.legado.app.help.http.okHttpClient
-import io.legado.app.model.AiBgMusic
 import io.legado.app.model.ReadBook
+import io.legado.app.utils.getPrefString
 import io.legado.app.utils.getPrefStringSet
+import io.legado.app.utils.putPrefString
 import io.legado.app.utils.putPrefStringSet
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
@@ -79,6 +80,14 @@ object ScriptBrain {
         val storagePath: String,
         val characters: List<ScriptCharacter>,
         val files: List<String>,
+    )
+
+    data class AnalysisModelProfile(
+        val name: String,
+        val provider: String = "",
+        val modelUrl: String = "",
+        val modelName: String = "",
+        val modelKey: String = "",
     )
 
     fun analyzeCurrentChapter(context: Context): Analysis {
@@ -181,6 +190,58 @@ object ScriptBrain {
         saveImportedRule(context.applicationContext, file.readText(Charsets.UTF_8), alsoSaveToLibrary = false)
     }
 
+    fun modelProfiles(context: Context): List<AnalysisModelProfile> {
+        val json = context.applicationContext.getPrefString(KEY_MODEL_PROFILES).orEmpty()
+        if (json.isBlank()) return emptyList()
+        val array = runCatching { JSONArray(json) }.getOrNull() ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val profile = AnalysisModelProfile(
+                    name = firstText(item, "name"),
+                    provider = firstText(item, "provider"),
+                    modelUrl = firstText(item, "modelUrl", "baseUrl", "url"),
+                    modelName = firstText(item, "modelName", "model"),
+                    modelKey = firstText(item, "modelKey", "apiKey", "key"),
+                )
+                if (profile.name.isNotBlank() && profile.modelUrl.isNotBlank() && profile.modelName.isNotBlank()) {
+                    add(profile)
+                }
+            }
+        }.distinctBy { it.name }
+    }
+
+    fun saveModelProfiles(context: Context, profiles: List<AnalysisModelProfile>) {
+        val normalized = profiles
+            .map {
+                it.copy(
+                    name = it.name.trim(),
+                    provider = it.provider.trim(),
+                    modelUrl = it.modelUrl.trim(),
+                    modelName = it.modelName.trim(),
+                    modelKey = it.modelKey.trim(),
+                )
+            }
+            .filter { it.name.isNotBlank() && it.modelUrl.isNotBlank() && it.modelName.isNotBlank() }
+            .distinctBy { it.name }
+        val array = JSONArray().also { target ->
+            normalized.forEach { target.put(it.toScriptModelJson()) }
+        }
+        context.applicationContext.putPrefString(KEY_MODEL_PROFILES, array.toString())
+        val selected = selectedModelProfileName(context.applicationContext)
+        if (selected.isNotBlank() && normalized.none { it.name == selected }) {
+            saveSelectedModelProfileName(context.applicationContext, normalized.firstOrNull()?.name.orEmpty())
+        }
+    }
+
+    fun selectedModelProfileName(context: Context): String {
+        return context.applicationContext.getPrefString(KEY_SELECTED_MODEL_PROFILE).orEmpty()
+    }
+
+    fun saveSelectedModelProfileName(context: Context, name: String) {
+        context.applicationContext.putPrefString(KEY_SELECTED_MODEL_PROFILE, name)
+    }
+
     fun selectedModelProfileNames(context: Context): Set<String> {
         return context.applicationContext
             .getPrefStringSet(KEY_SELECTED_MODEL_PROFILES, mutableSetOf())
@@ -195,13 +256,55 @@ object ScriptBrain {
         )
     }
 
-    fun selectedModelProfiles(context: Context): List<AiBgMusic.ModelProfile> {
-        val profiles = AiBgMusic.modelProfiles()
+    fun selectModelProfile(context: Context, profile: AnalysisModelProfile) {
+        saveSelectedModelProfileName(context.applicationContext, profile.name)
+        saveSelectedModelProfileNames(context.applicationContext, setOf(profile.name))
+    }
+
+    fun selectedModelProfile(context: Context): AnalysisModelProfile? {
+        return modelProfiles(context.applicationContext)
+            .firstOrNull { it.name == selectedModelProfileName(context.applicationContext) }
+    }
+
+    fun selectedModelProfiles(context: Context): List<AnalysisModelProfile> {
+        val profiles = modelProfiles(context.applicationContext)
         if (profiles.isEmpty()) return emptyList()
         val selectedNames = selectedModelProfileNames(context.applicationContext)
         val selected = profiles.filter { it.name in selectedNames }
         if (selected.isNotEmpty()) return selected
-        return AiBgMusic.selectedModelProfile()?.let { listOf(it) } ?: profiles.take(1)
+        return selectedModelProfile(context.applicationContext)?.let { listOf(it) } ?: profiles.take(1)
+    }
+
+    fun testModel(profile: AnalysisModelProfile): Result<String> = runCatching {
+        val url = profile.modelUrl.trim()
+        val model = profile.modelName.trim()
+        require(url.isNotBlank()) { "请先填写模型地址" }
+        require(model.isNotBlank()) { "请先填写模型名" }
+        val body = JSONObject()
+            .put("model", model)
+            .put(
+                "messages",
+                JSONArray().put(JSONObject().put("role", "user").put("content", "ping"))
+            )
+            .put("temperature", 0)
+            .toString()
+        val request = Request.Builder()
+            .url(normalizeChatCompletionsUrl(url))
+            .post(body.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+            .header("Content-Type", "application/json")
+            .apply {
+                if (profile.modelKey.isNotBlank()) {
+                    header("Authorization", "Bearer ${profile.modelKey.trim()}")
+                }
+            }
+            .build()
+        okHttpClient.newCall(request).execute().use { response ->
+            val text = response.body.string()
+            if (!response.isSuccessful) {
+                error("HTTP ${response.code}: ${text.take(240)}")
+            }
+            text
+        }
     }
 
     fun builtInRoleManagerInfo(context: Context): ImportedRuleInfo? {
@@ -579,13 +682,13 @@ object ScriptBrain {
         }
     }
 
-    private fun List<AiBgMusic.ModelProfile>.toScriptModelJsonArray(): JSONArray {
+    private fun List<AnalysisModelProfile>.toScriptModelJsonArray(): JSONArray {
         return JSONArray().also { array ->
             forEach { profile -> array.put(profile.toScriptModelJson()) }
         }
     }
 
-    private fun AiBgMusic.ModelProfile.toScriptModelJson(): JSONObject {
+    private fun AnalysisModelProfile.toScriptModelJson(): JSONObject {
         return JSONObject()
             .put("name", name)
             .put("provider", provider)
@@ -742,6 +845,14 @@ object ScriptBrain {
         return File(globalDir(context), bookName.safeFileName())
     }
 
+    private fun normalizeChatCompletionsUrl(url: String): String {
+        val normalized = url.trim().trimEnd('/')
+        if (normalized.endsWith("/chat/completions", ignoreCase = true)) return normalized
+        return "$normalized/chat/completions"
+    }
+
+    private const val KEY_MODEL_PROFILES = "script_brain_model_profiles"
+    private const val KEY_SELECTED_MODEL_PROFILE = "script_brain_selected_model_profile"
     private const val KEY_SELECTED_MODEL_PROFILES = "script_brain_selected_model_profiles"
 
     private fun String.safeFileName(): String {
