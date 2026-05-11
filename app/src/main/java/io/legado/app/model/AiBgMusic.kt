@@ -536,11 +536,10 @@ object AiBgMusic {
     fun onReadAloudState(play: Boolean, book: Book?, chapterIndex: Int, chapter: TextChapter?) {
         if (!enabled) return
         if (play) {
+            manualPaused = false
             ensureAnalysis(book, chapterIndex, chapter, force = false)
             currentPlaylist = chapterPlaylist(book?.name.orEmpty(), chapterIndex)
-            if (!manualPaused) {
-                playForPosition(0)
-            }
+            playForPosition(0)
         } else {
             pause()
         }

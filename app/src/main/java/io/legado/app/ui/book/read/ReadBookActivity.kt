@@ -223,6 +223,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     }
                 }
             }
+            updateAiBgMusicFloatButtonState()
         }
 
     private val searchContentActivity =
@@ -1407,7 +1408,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         putPrefInt("ai_bgm_float_y", view.y.toInt())
                     } else {
                         view.performClick()
-                        toggleAiBgMusicPlayback()
+                        toggleReadAloudFromFloat()
                     }
                     true
                 }
@@ -1422,31 +1423,31 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
-    private fun toggleAiBgMusicPlayback() {
-        if (!AiBgMusic.enabled) {
-            toastOnUi("请先在朗读设置里开启背景音乐")
-            return
+    private fun toggleReadAloudFromFloat() {
+        when {
+            BaseReadAloudService.isPlay() -> {
+                ReadAloud.pause(this)
+                toastOnUi("朗读已暂停")
+            }
+
+            BaseReadAloudService.isRun -> {
+                ReadAloud.resume(this)
+                toastOnUi("继续朗读")
+            }
+
+            else -> {
+                onClickReadAloud()
+            }
         }
-        val playing = AiBgMusic.toggleManualPlayback(
-            ReadBook.book,
-            ReadBook.durChapterIndex,
-            ReadBook.curTextChapter,
-            ReadBook.durChapterPos
-        )
-        updateAiBgMusicFloatButtonState(playing)
-        if (playing) {
-            toastOnUi("背景音乐播放")
-        } else {
-            toastOnUi("背景音乐暂停或正在等待播放列表")
-        }
+        updateAiBgMusicFloatButtonState()
     }
 
-    private fun updateAiBgMusicFloatButtonState(playing: Boolean = AiBgMusic.isPlaying()) {
+    private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
         binding.aiBgmFloatButton.setIconResource(
             if (playing) R.drawable.ic_pause_filled else R.drawable.ic_play_filled
         )
         binding.aiBgmFloatButton.contentDescription =
-            if (playing) "暂停背景音乐" else "播放背景音乐"
+            if (playing) "暂停朗读" else "开始朗读"
         updateAiBgMusicFloatButtonAppearance()
         updateAiBgMusicFloatButtonRotation(playing)
     }
@@ -1454,7 +1455,6 @@ class ReadBookActivity : BaseReadBookActivity(),
     private fun updateAiBgMusicFloatButtonAppearance() {
         val background = themeColor(com.google.android.material.R.attr.colorPrimaryContainer)
         val foreground = themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer)
-        val stroke = themeColor(androidx.appcompat.R.attr.colorPrimary)
         val ripple = Color.argb(
             0x33,
             Color.red(foreground),
@@ -1465,18 +1465,14 @@ class ReadBookActivity : BaseReadBookActivity(),
             iconTint = ColorStateList.valueOf(foreground)
             setTextColor(foreground)
             rippleColor = ColorStateList.valueOf(ripple)
-            this.background = createAiBgMusicFloatButtonBackground(background, stroke)
+            this.background = createAiBgMusicFloatButtonBackground(background)
         }
     }
 
-    private fun createAiBgMusicFloatButtonBackground(
-        backgroundColor: Int,
-        strokeColor: Int
-    ): GradientDrawable {
+    private fun createAiBgMusicFloatButtonBackground(backgroundColor: Int): GradientDrawable {
         return GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(backgroundColor)
-            setStroke(1.dpToPx(), strokeColor)
         }
     }
 
@@ -2473,7 +2469,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             updateAiBgMusicFloatButtonState()
         }
         observeEvent<Boolean>(EventBus.AI_BGM_PLAY_STATE) {
-            updateAiBgMusicFloatButtonState(it)
+            updateAiBgMusicFloatButtonState()
         }
         observeEvent<Boolean>(EventBus.REFRESH_BOOK_CONTENT) {
             ReadBook.book?.let {

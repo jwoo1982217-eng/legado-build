@@ -55,7 +55,7 @@
         android:layout_marginBottom="92dp"
         android:alpha="1"
         android:background="@drawable/bg_ai_bgm_fab"
-        android:contentDescription="智能背景音乐"
+        android:contentDescription="朗读播放控制"
         android:elevation="0dp"
         android:insetLeft="0dp"
         android:insetTop="0dp"
