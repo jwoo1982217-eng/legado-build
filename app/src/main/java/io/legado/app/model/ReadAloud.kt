@@ -75,6 +75,28 @@ object ReadAloud {
         }
     }
 
+    fun playGeneratedChapter(
+        context: Context,
+        pageIndex: Int = ReadBook.durPageIndex,
+        startPos: Int = 0
+    ) {
+        if (BaseReadAloudService.isRun && aloudClass != HttpReadAloudService::class.java) {
+            stop(context)
+        }
+        val intent = Intent(context, HttpReadAloudService::class.java)
+        intent.action = IntentAction.playGeneratedChapter
+        intent.putExtra("pageIndex", pageIndex)
+        intent.putExtra("startPos", startPos)
+        LogUtils.d("ReadAloud", intent.toString())
+        try {
+            context.startForegroundServiceCompat(intent)
+        } catch (e: Exception) {
+            val msg = "播放已生成章节音频出错\n${e.localizedMessage}"
+            AppLog.put(msg, e)
+            context.toastOnUi(msg)
+        }
+    }
+
     fun playByEventBus(
         play: Boolean = true,
         pageIndex: Int = ReadBook.durPageIndex,

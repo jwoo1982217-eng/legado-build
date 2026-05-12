@@ -80,6 +80,37 @@
         app:cornerRadius="29dp"
         app:rippleColor="#33FFFFFF" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/generated_audiobook_float_button"
+        style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="end|bottom"
+        android:layout_marginEnd="33dp"
+        android:layout_marginBottom="44dp"
+        android:alpha="1"
+        android:background="@drawable/bg_ai_bgm_fab"
+        android:contentDescription="整章朗读"
+        android:elevation="0dp"
+        android:insetLeft="0dp"
+        android:insetTop="0dp"
+        android:insetRight="0dp"
+        android:insetBottom="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:padding="0dp"
+        android:text=""
+        android:textColor="#FFFFFFFF"
+        android:visibility="gone"
+        app:backgroundTint="@null"
+        app:cornerRadius="20dp"
+        app:icon="@drawable/ic_play_filled"
+        app:iconGravity="textStart"
+        app:iconPadding="0dp"
+        app:iconSize="20dp"
+        app:iconTint="#FFFFFFFF"
+        app:rippleColor="#33FFFFFF" />
+
     <View
         android:id="@+id/navigation_bar"
         android:layout_width="match_parent"

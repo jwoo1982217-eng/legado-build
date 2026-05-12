@@ -33,6 +33,7 @@ object EventBus {
     const val READ_ALOUD_PLAY = "readAloudPlay"
     const val AI_BGM_CHANGED = "aiBgmChanged"
     const val AI_BGM_PLAY_STATE = "aiBgmPlayState"
+    const val AUDIOBOOK_CACHE_CHANGED = "audiobookCacheChanged"
     const val EXPORT_BOOK = "exportBook"
     const val UP_MANGA_CONFIG = "upMangaConfig"
     const val PLAY_MODE_CHANGED = "playModeChanged"

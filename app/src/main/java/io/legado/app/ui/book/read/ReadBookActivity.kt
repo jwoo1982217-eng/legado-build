@@ -53,6 +53,7 @@ import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.IntentData
 import io.legado.app.help.TTS
 import io.legado.app.help.TtsServerDbBridge
+import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.book.isAudio
@@ -457,6 +458,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         registerReceiver(timeBatteryReceiver, timeBatteryReceiver.filter)
         binding.readView.upTime()
         updateAiBgMusicFloatButtonState()
+        updateGeneratedAudiobookFloatButtonState()
         screenOffTimerStart()
         // 网络监听，当从无网切换到网络环境时同步进度（注意注册的同时就会收到监听，因此界面激活时无需重复执行同步操作）
         networkChangedListener.register()
@@ -1230,6 +1232,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
             loadStates = false
             success?.invoke()
+            updateGeneratedAudiobookFloatButtonState()
         }
     }
 
@@ -1243,6 +1246,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             upSeekBarProgress()
         }
         loadStates = false
+        updateGeneratedAudiobookFloatButtonState()
     }
 
     override fun upPageAnim(upRecorder: Boolean) {
@@ -1353,7 +1357,9 @@ class ReadBookActivity : BaseReadBookActivity(),
     private fun initAiBgMusicView() {
         val button = binding.aiBgmFloatButton
         button.visible(AiBgMusic.enabled)
+        binding.generatedAudiobookFloatButton.visible(false)
         updateAiBgMusicFloatButtonState()
+        updateGeneratedAudiobookFloatButtonState()
         button.post {
             val savedX = getPrefInt("ai_bgm_float_x", Int.MIN_VALUE)
             val savedY = getPrefInt("ai_bgm_float_y", Int.MIN_VALUE)
@@ -1361,6 +1367,10 @@ class ReadBookActivity : BaseReadBookActivity(),
                 button.x = savedX.coerceIn(0, (binding.rootView.width - button.width).coerceAtLeast(0)).toFloat()
                 button.y = savedY.coerceIn(0, (binding.rootView.height - button.height).coerceAtLeast(0)).toFloat()
             }
+            positionGeneratedAudiobookBubble()
+        }
+        binding.generatedAudiobookFloatButton.setOnClickListener {
+            playGeneratedAudiobook()
         }
         bindAiBgMusicFloatDrag()
     }
@@ -1397,6 +1407,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         val maxY = (binding.rootView.height - view.height).coerceAtLeast(0).toFloat()
                         view.x = (startX + dx).coerceIn(0f, maxX)
                         view.y = (startY + dy).coerceIn(0f, maxY)
+                        positionGeneratedAudiobookBubble()
                     }
                     true
                 }
@@ -1406,6 +1417,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     if (dragged) {
                         putPrefInt("ai_bgm_float_x", view.x.toInt())
                         putPrefInt("ai_bgm_float_y", view.y.toInt())
+                        positionGeneratedAudiobookBubble()
                     } else {
                         view.performClick()
                         toggleReadAloudFromFloat()
@@ -1450,6 +1462,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             if (playing) "暂停朗读" else "开始朗读"
         updateAiBgMusicFloatButtonAppearance()
         updateAiBgMusicFloatButtonRotation(playing)
+        updateGeneratedAudiobookFloatButtonState()
     }
 
     private fun updateAiBgMusicFloatButtonAppearance() {
@@ -1467,6 +1480,59 @@ class ReadBookActivity : BaseReadBookActivity(),
             rippleColor = ColorStateList.valueOf(ripple)
             this.background = createAiBgMusicFloatButtonBackground(background)
         }
+        binding.generatedAudiobookFloatButton.apply {
+            iconTint = ColorStateList.valueOf(foreground)
+            setTextColor(foreground)
+            rippleColor = ColorStateList.valueOf(ripple)
+            this.background = createAiBgMusicFloatButtonBackground(background)
+        }
+    }
+
+    private fun updateGeneratedAudiobookFloatButtonState() {
+        val shouldShow = binding.aiBgmFloatButton.visibility == View.VISIBLE &&
+                hasCurrentGeneratedChapterAudio()
+        binding.generatedAudiobookFloatButton.visible(shouldShow)
+        if (shouldShow) {
+            updateAiBgMusicFloatButtonAppearance()
+            positionGeneratedAudiobookBubble()
+        }
+    }
+
+    private fun hasCurrentGeneratedChapterAudio(): Boolean {
+        val book = ReadBook.book ?: return false
+        val chapter = ReadBook.curTextChapter?.chapter ?: return false
+        return LocalAudiobookFileGenerator.findChapterPlaybackAudio(
+            context = this,
+            bookName = book.name,
+            chapter = TtsServerDbBridge.AudiobookChapter(
+                chapterIndex = chapter.index,
+                chapterTitle = chapter.title,
+                chapterText = ""
+            )
+        ) != null
+    }
+
+    private fun positionGeneratedAudiobookBubble() {
+        val anchor = binding.aiBgmFloatButton
+        val bubble = binding.generatedAudiobookFloatButton
+        if (anchor.width <= 0 || anchor.height <= 0 || bubble.width <= 0 || bubble.height <= 0) {
+            bubble.post { positionGeneratedAudiobookBubble() }
+            return
+        }
+        val rootWidth = binding.rootView.width.coerceAtLeast(1)
+        val rootHeight = binding.rootView.height.coerceAtLeast(1)
+        val gap = 7.dpToPx()
+        val maxX = (rootWidth - bubble.width).coerceAtLeast(0).toFloat()
+        val maxY = (rootHeight - bubble.height).coerceAtLeast(0).toFloat()
+        val targetX = (anchor.x + (anchor.width - bubble.width) / 2f).coerceIn(0f, maxX)
+        val belowY = anchor.y + anchor.height + gap
+        val targetY = if (belowY <= maxY) {
+            belowY
+        } else {
+            (anchor.y - bubble.height - gap).coerceIn(0f, maxY)
+        }
+        bubble.x = targetX
+        bubble.y = targetY
     }
 
     private fun createAiBgMusicFloatButtonBackground(backgroundColor: Int): GradientDrawable {
@@ -2056,6 +2122,30 @@ class ReadBookActivity : BaseReadBookActivity(),
         audiobookCacheGenerator.showGenerateDialog()
     }
 
+    private fun playGeneratedAudiobook() {
+        autoPageStop()
+        val scrollPageAnim = ReadBook.pageAnim() == 3
+        if (scrollPageAnim) {
+            val pos = binding.readView.getReadAloudPos()
+            if (pos != null) {
+                val (index, line) = pos
+                if (ReadBook.durChapterIndex != index) {
+                    ReadBook.openChapter(index, line.chapterPosition, false) {
+                        ReadAloud.playGeneratedChapter(
+                            this@ReadBookActivity,
+                            startPos = line.pagePosition
+                        )
+                    }
+                } else {
+                    ReadBook.durChapterPos = line.chapterPosition
+                    ReadAloud.playGeneratedChapter(this, startPos = line.pagePosition)
+                }
+                return
+            }
+        }
+        ReadAloud.playGeneratedChapter(this)
+    }
+
     override fun showAudiobookCacheStatus() {
         audiobookCacheGenerator.showChapterStatusDialog()
     }
@@ -2467,9 +2557,13 @@ class ReadBookActivity : BaseReadBookActivity(),
         observeEvent<Boolean>(EventBus.AI_BGM_CHANGED) {
             aiBgmFloatButton.visible(it)
             updateAiBgMusicFloatButtonState()
+            updateGeneratedAudiobookFloatButtonState()
         }
         observeEvent<Boolean>(EventBus.AI_BGM_PLAY_STATE) {
             updateAiBgMusicFloatButtonState()
+        }
+        observeEvent<Boolean>(EventBus.AUDIOBOOK_CACHE_CHANGED) {
+            updateGeneratedAudiobookFloatButtonState()
         }
         observeEvent<Boolean>(EventBus.REFRESH_BOOK_CONTENT) {
             ReadBook.book?.let {

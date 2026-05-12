@@ -820,6 +820,30 @@ class HttpReadAloudService : BaseReadAloudService(),
         AppLog.putDebug("已手动暂停后台预缓存。")
     }
 
+    protected override fun playGeneratedChapterByCommand() {
+        pageChanged = false
+        downloadTask?.cancel()
+        backgroundPreloadTask?.cancel()
+        backgroundPreloadTask = null
+        backgroundPreloadWindowKey = null
+        backgroundPreloadToken++
+        playIndexJob?.cancel()
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        chapterAudioMode = false
+        chapterPlaybackAudio = null
+        if (!requestFocus()) return
+        val playback = findCurrentChapterPlaybackAudio()
+        if (playback == null) {
+            AppLog.putDebug("本章还没有生成完整章节音频，不启动 TTS。")
+            toastOnUi("本章还没有生成完整音频")
+            pauseReadAloud(false)
+            return
+        }
+        AppLog.putDebug("播放已生成章节音频，不启动 TTS: ${playback.file.absolutePath}")
+        playChapterAudio(playback)
+    }
+
     override fun currentHttpTtsForAudiobookMerge(): HttpTTS? {
         return ReadAloud.httpTTS
     }

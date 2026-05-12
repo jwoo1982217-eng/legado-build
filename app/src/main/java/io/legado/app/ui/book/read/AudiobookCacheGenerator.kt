@@ -9,6 +9,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import io.legado.app.R
+import io.legado.app.constant.EventBus
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookSource
@@ -22,6 +23,7 @@ import io.legado.app.help.config.AppConfig
 import io.legado.app.model.ReadBook
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.utils.dpToPx
+import io.legado.app.utils.postEvent
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -365,6 +367,7 @@ class AudiobookCacheGenerator(
                             "第 ${chapter.chapterIndex + 1} 章缓存可能未完全删除"
                         }
                     )
+                    postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
                     refresh()
                 }
             }
@@ -554,6 +557,7 @@ class AudiobookCacheGenerator(
                     }
                     if (final.isReady) {
                         context.toastOnUi("章节音频已生成")
+                        postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
                     }
                 }
             } catch (e: Throwable) {
@@ -706,6 +710,7 @@ class AudiobookCacheGenerator(
                 if (status.isFinished) {
                     if (status.status.equals("ready", true) || status.status.equals("completed", true)) {
                         context.toastOnUi("有声书缓存已生成")
+                        postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
                     }
                     return
                 }

@@ -221,6 +221,13 @@ abstract class BaseReadAloudService : BaseService(),
                 intent.getIntExtra("startPos", 0)
             )
 
+            IntentAction.playGeneratedChapter -> newReadAloud(
+                play = true,
+                pageIndex = intent.getIntExtra("pageIndex", ReadBook.durPageIndex),
+                startPos = intent.getIntExtra("startPos", 0),
+                generatedOnly = true
+            )
+
             IntentAction.pause -> pauseReadAloud()
             IntentAction.resume -> resumeReadAloud()
             IntentAction.upTtsSpeechRate -> upSpeechRate(true)
@@ -237,7 +244,12 @@ abstract class BaseReadAloudService : BaseService(),
         return super.onStartCommand(intent, flags, startId)
     }
 
-    private fun newReadAloud(play: Boolean, pageIndex: Int, startPos: Int) {
+    private fun newReadAloud(
+        play: Boolean,
+        pageIndex: Int,
+        startPos: Int,
+        generatedOnly: Boolean = false
+    ) {
         execute(executeContext = IO) {
             this@BaseReadAloudService.pageIndex = pageIndex
             textChapter = ReadBook.curTextChapter
@@ -275,7 +287,11 @@ abstract class BaseReadAloudService : BaseService(),
             }
             paragraphStartPos = pos
             launch(Main) {
-                if (play) play() else pageChanged = true
+                when {
+                    generatedOnly -> playGeneratedChapterByCommand()
+                    play -> play()
+                    else -> pageChanged = true
+                }
             }
         }.onError {
             AppLog.put("启动朗读出错\n${it.localizedMessage}", it, true)
@@ -356,6 +372,8 @@ abstract class BaseReadAloudService : BaseService(),
     protected open fun startAudioPreloadByCommand() = Unit
 
     protected open fun stopAudioPreloadByCommand() = Unit
+
+    protected open fun playGeneratedChapterByCommand() = Unit
 
     protected fun markChapterFinishedByPlayback() {
         chapterFinishedByPlayback = true
