@@ -54,6 +54,11 @@ object ScriptBrain {
         val logs: List<String>,
     )
 
+    private data class LockedAnalysisData(
+        val characters: List<ScriptCharacter>,
+        val lines: List<ScriptLine>,
+    )
+
     data class ImportedRuleInfo(
         val name: String,
         val author: String,
@@ -375,6 +380,8 @@ object ScriptBrain {
     ): RuleRunResult {
         val logs = arrayListOf<String>()
         val analysisModels = selectedModelProfiles(context)
+        val dir = scriptDir(context, payload.bookName).apply { mkdirs() }
+        val existingCharacters = readRoleManagerCharacters(dir)
         val payloadJson = JSONObject()
             .put("bookName", payload.bookName)
             .put("bookUrl", payload.bookUrl)
@@ -382,6 +389,8 @@ object ScriptBrain {
             .put("chapterIndex", payload.chapterIndex)
             .put("chapterTitle", payload.chapterTitle)
             .put("chapterText", payload.chapterText)
+            .put("characterRecords", existingCharacters.toRoleManagerJson())
+            .put("voicePool", voicePoolJson())
             .put("analysisModel", analysisModels.firstOrNull()?.toScriptModelJson() ?: JSONObject.NULL)
             .put("analysisModels", analysisModels.toScriptModelJsonArray())
 
@@ -392,18 +401,23 @@ object ScriptBrain {
         val scope = RhinoScriptEngine.getRuntimeScope(bindings)
         RhinoScriptEngine.eval(extractRuleCode(ruleText), scope)
         val rawQueueJson = RhinoScriptEngine.eval(ruleCallJs(payloadJson), scope)?.toString().orEmpty()
-        val lines = parseAudioQueue(rawQueueJson)
+        val rawLines = parseAudioQueue(rawQueueJson)
+        val returnedCharacters = parseRuleCharacters(rawQueueJson)
+        val locked = lockCharactersAndLines(
+            existingCharacters = existingCharacters,
+            suggestedCharacters = returnedCharacters + charactersFromLines(rawLines),
+            rawLines = rawLines,
+        )
         val analysis = Analysis(
             bookName = payload.bookName,
             chapterIndex = payload.chapterIndex,
             chapterTitle = payload.chapterTitle,
-            characters = charactersFromLines(lines),
-            lines = lines,
+            characters = locked.characters,
+            lines = locked.lines,
             updatedAt = System.currentTimeMillis(),
             source = "导入朗读规则",
         )
         save(context, analysis)
-        val dir = scriptDir(context, payload.bookName).apply { mkdirs() }
         File(dir, "last_audio_queue.json").writeText(rawQueueJson, Charsets.UTF_8)
         File(dir, "last_rule_log.txt").writeText(logs.joinToString("\n"), Charsets.UTF_8)
         return RuleRunResult(analysis, rawQueueJson, logs)
@@ -425,9 +439,6 @@ object ScriptBrain {
                     throw '未找到 SpeechRuleJS.prepareChapterAudioQueue / prepareChapterAudioQueue';
                 }
                 var ret = fn(payload);
-                if (ret && ret.audioQueue) ret = ret.audioQueue;
-                if (ret && ret.queue) ret = ret.queue;
-                if (ret && ret.items) ret = ret.items;
                 return JSON.stringify(ret || []);
             })();
         """.trimIndent()
@@ -488,7 +499,7 @@ object ScriptBrain {
                 val role = normalizeRoleName(rawRole, tag)
                 val voice = firstText(item, "voice", "voiceTag", "displayVoice", "actualVoice", "sourceVoice")
                     .ifBlank { nestedVoice(item) }
-                    .ifBlank { if (role == NARRATOR_ROLE) "旁白01" else tag.takeIf { it.isUsefulVoiceTag() }.orEmpty() }
+                    .ifBlank { if (role == NARRATOR_ROLE) "旁白" else tag.takeIf { it.isUsefulVoiceTag() }.orEmpty() }
                     .ifBlank { "待分配" }
                 add(
                     ScriptLine(
@@ -529,10 +540,127 @@ object ScriptBrain {
         return ScriptLine(
             index = index,
             roleName = NARRATOR_ROLE,
-            voiceTag = "旁白01",
+            voiceTag = "旁白",
             isNarration = true,
             text = text
         )
+    }
+
+    private fun parseRuleCharacters(rawQueueJson: String): List<ScriptCharacter> {
+        val trimmed = rawQueueJson.trim()
+        if (trimmed.isBlank() || trimmed.startsWith("[")) return emptyList()
+        val obj = runCatching { JSONObject(trimmed) }.getOrNull() ?: return emptyList()
+        val direct = obj.optJSONArray("characters")
+            ?: obj.optJSONArray("roles")
+            ?: obj.optJSONArray("roleRecords")
+            ?: obj.optJSONArray("characterRecords")
+        val fromArray = direct?.let { parseCharacterArray(it) }.orEmpty()
+        val roleMap = obj.optJSONObject("roleMap") ?: obj.optJSONObject("charactersMap")
+        val fromMap = roleMap?.let { parseCharacterMap(it) }.orEmpty()
+        return (fromArray + fromMap)
+            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && it.name != UNKNOWN_ROLE }
+            .distinctBy { it.name }
+    }
+
+    private fun parseCharacterArray(array: JSONArray): List<ScriptCharacter> {
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                parseCharacterObject(item)?.let { add(it) }
+            }
+        }
+    }
+
+    private fun parseCharacterMap(map: JSONObject): List<ScriptCharacter> {
+        return buildList {
+            val keys = map.keys()
+            while (keys.hasNext()) {
+                val name = keys.next()
+                val item = map.optJSONObject(name) ?: continue
+                parseCharacterObject(item, fallbackName = name)?.let { add(it) }
+            }
+        }
+    }
+
+    private fun parseCharacterObject(item: JSONObject, fallbackName: String = ""): ScriptCharacter? {
+        val name = firstText(item, "name", "roleName", "character", "speaker", "label")
+            .ifBlank { fallbackName }
+            .trim()
+        if (name.isBlank() || name == NARRATOR_ROLE || name == UNKNOWN_ROLE) return null
+        val gender = firstText(item, "gender").ifBlank { "待定" }
+        val age = firstText(item, "ageType", "age", "genderAge").ifBlank { voicePoolPrefix("", gender) }
+        val voice = firstText(item, "voiceTag", "voice", "displayVoice", "actualVoice", "selectedVoice")
+        val normalizedVoice = normalizeVoiceTag(voice, age, gender)
+        val voiceInfo = inferCharacterFromVoiceTag(normalizedVoice)
+        return ScriptCharacter(
+            name = name,
+            gender = voiceInfo.first.ifBlank { gender },
+            ageType = voiceInfo.second.ifBlank { age.toRoleManagerAge(gender) },
+            voiceTag = normalizedVoice.ifBlank { "待分配" },
+        )
+    }
+
+    private fun lockCharactersAndLines(
+        existingCharacters: List<ScriptCharacter>,
+        suggestedCharacters: List<ScriptCharacter>,
+        rawLines: List<ScriptLine>,
+    ): LockedAnalysisData {
+        val existingByName = existingCharacters
+            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && it.name != UNKNOWN_ROLE }
+            .associateBy { it.name }
+        val occupied = linkedMapOf<String, String>()
+        existingCharacters.forEach { character ->
+            val voice = normalizeVoiceTag(character.voiceTag, character.ageType, character.gender)
+            if (voice.isLockedVoiceTag()) occupied[voice] = character.name
+        }
+
+        val finalCharacters = linkedMapOf<String, ScriptCharacter>()
+        fun ensureCharacter(roleName: String, suggestion: ScriptCharacter? = null, suggestedVoice: String = ""): ScriptCharacter {
+            finalCharacters[roleName]?.let { return it }
+            val existing = existingByName[roleName]
+            val base = suggestion ?: existing ?: inferCharacter(roleName)
+            val preferredVoice = normalizeVoiceTag(
+                existing?.voiceTag?.takeIf { it.isLockedVoiceTag() } ?: suggestedVoice.ifBlank { base.voiceTag },
+                existing?.ageType ?: base.ageType,
+                existing?.gender ?: base.gender,
+            )
+            val finalVoice = if (preferredVoice.isLockedVoiceTag() && occupied[preferredVoice]?.let { it == roleName } != false) {
+                occupied[preferredVoice] = roleName
+                preferredVoice
+            } else {
+                allocateVoiceTag(
+                    roleName = roleName,
+                    suggestedVoice = preferredVoice,
+                    ageType = existing?.ageType ?: base.ageType,
+                    gender = existing?.gender ?: base.gender,
+                    occupied = occupied,
+                )
+            }
+            val voiceInfo = inferCharacterFromVoiceTag(finalVoice)
+            val finalCharacter = ScriptCharacter(
+                name = roleName,
+                gender = voiceInfo.first.ifBlank { existing?.gender ?: base.gender },
+                ageType = voiceInfo.second.ifBlank { existing?.ageType ?: base.ageType.toRoleManagerAge(base.gender) },
+                voiceTag = finalVoice,
+            )
+            finalCharacters[roleName] = finalCharacter
+            return finalCharacter
+        }
+
+        suggestedCharacters
+            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && it.name != UNKNOWN_ROLE }
+            .distinctBy { it.name }
+            .forEach { ensureCharacter(it.name, suggestion = it, suggestedVoice = it.voiceTag) }
+
+        val finalLines = rawLines.map { line ->
+            if (line.isNarration || line.roleName == NARRATOR_ROLE) {
+                line.copy(roleName = NARRATOR_ROLE, voiceTag = "旁白", isNarration = true)
+            } else {
+                val character = ensureCharacter(line.roleName, suggestedVoice = line.voiceTag)
+                line.copy(voiceTag = character.voiceTag)
+            }
+        }
+        return LockedAnalysisData(finalCharacters.values.toList(), finalLines)
     }
 
     private fun dialogue(index: Int, speaker: String, text: String): ScriptLine {
@@ -590,6 +718,93 @@ object ScriptBrain {
             else -> ""
         }
         return gender to ageType
+    }
+
+    private fun normalizeVoiceTag(voiceTag: String, ageType: String, gender: String): String {
+        val value = voiceTag.trim().replace(Regex("\\s+"), "")
+        if (value.isBlank() || value.isGenericVoiceTag()) return ""
+        if (value == "旁白" || value.equals("narration", ignoreCase = true)) return "旁白"
+        if (value.matches(Regex("^[男女]/.+\\d{2,3}$"))) return value
+        if (value.matches(Regex("^[男女]/.+$"))) return "${value}01"
+        val short = Regex("^(男童|女童|少年|少女|男青年|女青年|男中年|女中年|男老年|女老年|特殊男|特殊女)(\\d{2,3})?$")
+            .matchEntire(value)
+        if (short != null) {
+            val prefix = voicePoolPrefix(short.groupValues[1], gender)
+            val suffix = short.groupValues.getOrNull(2).orEmpty().ifBlank { "01" }
+            return "$prefix$suffix"
+        }
+        val prefix = voicePoolPrefix(ageType, gender)
+        return "${prefix}01"
+    }
+
+    private fun voicePoolPrefix(ageType: String, gender: String): String {
+        val value = ageType.trim().replace(Regex("\\s+"), "")
+        var inferredGender = gender.trim()
+        if (value.matches(Regex("^男/(男童|少年|男青年|男中年|男老年|特殊)$"))) return value
+        if (value.matches(Regex("^女/(女童|少女|女青年|女中年|女老年|特殊)$"))) return value
+        if (value.contains("女")) inferredGender = "女"
+        if (value.contains("男")) inferredGender = "男"
+        return when {
+            Regex("老年|老人|老者|老翁|老汉|爷爷|七旬|八旬|六旬|古稀|花甲").containsMatchIn(value) ->
+                if (inferredGender == "女") "女/女老年" else "男/男老年"
+            Regex("女童|小女孩|女娃|幼女").containsMatchIn(value) -> "女/女童"
+            Regex("男童|小男孩|男娃|童").containsMatchIn(value) -> "男/男童"
+            Regex("少女|姑娘|丫头|女学生").containsMatchIn(value) -> "女/少女"
+            Regex("少年|小伙子|男学生").containsMatchIn(value) -> "男/少年"
+            Regex("女中年|中年妇|妇人|妇女").containsMatchIn(value) -> "女/女中年"
+            Regex("男中年|中年|壮年|汉子|大汉|管事|掌柜|管家|官员|将军").containsMatchIn(value) ->
+                if (inferredGender == "女") "女/女中年" else "男/男中年"
+            Regex("女青年|女子|女人").containsMatchIn(value) -> "女/女青年"
+            Regex("男青年|男子|男人").containsMatchIn(value) -> "男/男青年"
+            Regex("青年|年轻").containsMatchIn(value) -> if (inferredGender == "女") "女/女青年" else "男/男青年"
+            value.contains("特殊") -> if (inferredGender == "女") "女/特殊" else "男/特殊"
+            inferredGender == "女" -> "女/女青年"
+            else -> "男/男青年"
+        }
+    }
+
+    private fun allocateVoiceTag(
+        roleName: String,
+        suggestedVoice: String,
+        ageType: String,
+        gender: String,
+        occupied: MutableMap<String, String>,
+    ): String {
+        val suggested = normalizeVoiceTag(suggestedVoice, ageType, gender)
+        if (suggested.isLockedVoiceTag() && occupied[suggested]?.let { it == roleName } != false) {
+            occupied[suggested] = roleName
+            return suggested
+        }
+        val prefix = voicePoolPrefix(ageType, gender)
+        for (index in 1..voicePoolCapacity(prefix)) {
+            val voice = "$prefix${index.toString().padStart(2, '0')}"
+            if (!occupied.containsKey(voice)) {
+                occupied[voice] = roleName
+                return voice
+            }
+        }
+        return suggested.ifBlank { "${prefix}01" }
+    }
+
+    private fun voicePoolCapacity(prefix: String): Int {
+        return when {
+            prefix.contains("青年") -> 200
+            prefix.contains("特殊") -> 20
+            else -> 100
+        }
+    }
+
+    private fun String.isLockedVoiceTag(): Boolean {
+        return isNotBlank() && !isGenericVoiceTag() && this != "旁白"
+    }
+
+    private fun String.isGenericVoiceTag(): Boolean {
+        return isBlank()
+                || equals("待分配", ignoreCase = true)
+                || equals("对话", ignoreCase = true)
+                || equals("dialogue", ignoreCase = true)
+                || equals("duihua", ignoreCase = true)
+                || equals("narration", ignoreCase = true)
     }
 
     private fun normalizeRoleName(role: String, tag: String): String {
@@ -724,6 +939,33 @@ object ScriptBrain {
         }
     }
 
+    private fun voicePoolJson(): JSONArray {
+        val configs = listOf(
+            "女/少女" to 100,
+            "男/少年" to 100,
+            "女/女青年" to 200,
+            "男/男青年" to 200,
+            "女/女中年" to 100,
+            "男/男中年" to 100,
+            "女/女老年" to 100,
+            "男/男老年" to 100,
+            "女/女童" to 100,
+            "男/男童" to 100,
+            "男/特殊" to 20,
+            "女/特殊" to 20,
+        )
+        return JSONArray().also { array ->
+            configs.forEach { (prefix, count) ->
+                array.put(
+                    JSONObject()
+                        .put("prefix", prefix)
+                        .put("count", count)
+                        .put("example", "${prefix}01")
+                )
+            }
+        }
+    }
+
     private fun AnalysisModelProfile.toScriptModelJson(): JSONObject {
         return JSONObject()
             .put("name", name)
@@ -758,7 +1000,8 @@ object ScriptBrain {
 
     private fun syncRoleManagerFiles(dir: File, analysis: Analysis) {
         val bookFileName = "shuming.${analysis.bookName.safeFileName()}.json"
-        val records = analysis.characters.toRoleManagerJson()
+        val mergedCharacters = mergeRoleCharacters(dir, analysis.characters)
+        val records = mergedCharacters.toRoleManagerJson()
         File(dir, "characterRecords.json").writeText(records.toString(2), Charsets.UTF_8)
         File(dir, bookFileName).writeText(records.toString(2), Charsets.UTF_8)
         File(dir, "cunfang.txt").writeText(analysis.bookName, Charsets.UTF_8)
@@ -768,7 +1011,7 @@ object ScriptBrain {
                 .put("chapterIndex", analysis.chapterIndex)
                 .put("chapterTitle", analysis.chapterTitle)
                 .put("updatedAt", analysis.updatedAt)
-                .put("count", analysis.characters.size)
+                .put("count", mergedCharacters.size)
                 .put("source", analysis.source)
                 .toString(2),
             Charsets.UTF_8
@@ -779,7 +1022,7 @@ object ScriptBrain {
         )
         File(dir, "fayinren.json").writeText(
             JSONArray().also { array ->
-                analysis.characters
+                mergedCharacters
                     .map { it.voiceTag }
                     .filter { it.isNotBlank() && it != "待分配" }
                     .distinct()
@@ -787,6 +1030,28 @@ object ScriptBrain {
             }.toString(2),
             Charsets.UTF_8
         )
+    }
+
+    private fun mergeRoleCharacters(dir: File, current: List<ScriptCharacter>): List<ScriptCharacter> {
+        val merged = linkedMapOf<String, ScriptCharacter>()
+        readRoleManagerCharacters(dir).forEach { character ->
+            if (character.name.isNotBlank() && character.name != NARRATOR_ROLE) {
+                merged[character.name] = character
+            }
+        }
+        current.forEach { character ->
+            if (character.name.isBlank() || character.name == NARRATOR_ROLE) return@forEach
+            val old = merged[character.name]
+            merged[character.name] = when {
+                old == null -> character
+                old.voiceTag.isLockedVoiceTag() -> old.copy(
+                    gender = old.gender.ifBlank { character.gender },
+                    ageType = old.ageType.ifBlank { character.ageType },
+                )
+                else -> character
+            }
+        }
+        return merged.values.toList()
     }
 
     private fun readRoleManagerCharacters(dir: File): List<ScriptCharacter> {

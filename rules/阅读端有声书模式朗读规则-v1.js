@@ -1,6 +1,6 @@
 var SpeechRuleJS = (function () {
-    var RULE_NAME = "阅读端有声书模式朗读规则";
-    var RULE_VERSION = "1.0.2";
+    var RULE_NAME = "阅读端文本分析规则（抽离版）";
+    var RULE_VERSION = "1.1.0";
     var NARRATOR = "旁白";
     var UNKNOWN = "未知角色";
 
@@ -85,7 +85,7 @@ var SpeechRuleJS = (function () {
 
     function cleanSpeakerName(name) {
         return String(name || "")
-            .replace(/(低声|轻声|冷声|沉声|柔声|怒声|笑着|哭着|急声|淡淡|缓缓|认真|皱眉|叹息|点头|摇头)+$/g, "")
+            .replace(/(低声|轻声|冷声|沉声|柔声|怒声|笑着|哭着|急声|淡淡|缓缓|认真|皱眉|叹息|点头|摇头|说道|说|道|问|喊|叫|答|骂)+$/g, "")
             .replace(/^[\s　]+|[\s　]+$/g, "");
     }
 
@@ -328,6 +328,52 @@ var SpeechRuleJS = (function () {
         return result;
     }
 
+    function collectCharacters(queue) {
+        var map = {};
+        var result = [];
+        for (var i = 0; i < queue.length; i++) {
+            var item = queue[i] || {};
+            var name = item.roleName || item.displayRoleName || "";
+            if (!name || name === NARRATOR || name === UNKNOWN || map[name]) continue;
+            var info = item.characterInfo || inferCharacter(name);
+            var voiceTag = normalizeVoiceTag(
+                info.voiceTag || item.voiceTag || item.voice || "",
+                info.ageType || info.age || "男/男青年",
+                info.gender || "待定"
+            );
+            map[name] = true;
+            result.push({
+                name: name,
+                aliases: info.aliases || "",
+                gender: info.gender || "待定",
+                age: voicePoolPrefix(info.ageType || info.age || "男/男青年", info.gender || "待定"),
+                ageType: voicePoolPrefix(info.ageType || info.age || "男/男青年", info.gender || "待定"),
+                voice: voiceTag,
+                voiceTag: voiceTag,
+                usageCount: 100,
+                source: RULE_NAME
+            });
+        }
+        return result;
+    }
+
+    function voicePoolConfig() {
+        return [
+            { prefix: "女/少女", count: 100 },
+            { prefix: "男/少年", count: 100 },
+            { prefix: "女/女青年", count: 200 },
+            { prefix: "男/男青年", count: 200 },
+            { prefix: "女/女中年", count: 100 },
+            { prefix: "男/男中年", count: 100 },
+            { prefix: "女/女老年", count: 100 },
+            { prefix: "男/男老年", count: 100 },
+            { prefix: "女/女童", count: 100 },
+            { prefix: "男/男童", count: 100 },
+            { prefix: "男/特殊", count: 20 },
+            { prefix: "女/特殊", count: 20 }
+        ];
+    }
+
     function pickModel(payload) {
         var models = payload && payload.analysisModels;
         if (models && models.length) return models[0];
@@ -404,7 +450,23 @@ var SpeechRuleJS = (function () {
             queue = improveCharactersByModel(payload, queue);
             queue = normalizeQueue(queue);
             log("完成台词本：" + queue.length + " 句");
-            return queue;
+            var characters = collectCharacters(queue);
+            return {
+                ok: true,
+                status: "ready",
+                bookName: payload.bookName || "",
+                bookUrl: payload.bookUrl || payload.bookKey || "",
+                chapterIndex: Number(payload.chapterIndex || 0),
+                chapterTitle: payload.chapterTitle || "",
+                textLength: String(payload.chapterText || "").length,
+                characters: characters,
+                roles: characters,
+                voicePool: voicePoolConfig(),
+                audioQueue: queue,
+                ruleName: RULE_NAME,
+                ruleVersion: RULE_VERSION,
+                preparedAt: Date.now()
+            };
         }
     };
 })();
