@@ -17,11 +17,13 @@ import io.legado.app.constant.EventBus
 import io.legado.app.constant.PreferKey
 import io.legado.app.data.appDb
 import io.legado.app.help.IntentHelp
+import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
 import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.lib.prefs.SwitchPreference
 import io.legado.app.lib.prefs.fragment.PreferenceFragment
 import io.legado.app.model.ReadAloud
+import io.legado.app.model.ReadBook
 import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.widget.number.NumberPickerDialog
 import io.legado.app.utils.GSON
@@ -86,7 +88,14 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
                 it.summary = getString(R.string.clear_cache)
                 it.setOnPreferenceClickListener {
                     TTSCacheUtils.clearTtsCache()
-                    toastOnUi("音频缓存已清理")
+                    val bookName = ReadBook.book?.name
+                    if (bookName.isNullOrBlank()) {
+                        LocalAudiobookFileGenerator.clearAllAudioCache(requireContext())
+                        toastOnUi("音频缓存和有声书整章缓存已清理")
+                    } else {
+                        LocalAudiobookFileGenerator.clearBookAudioCache(requireContext(), bookName)
+                        toastOnUi("音频缓存和本书整章缓存已清理")
+                    }
                     true
                 }
             }

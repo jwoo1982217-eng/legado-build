@@ -20,6 +20,7 @@ import io.legado.app.model.ReadAloud
 import io.legado.app.model.analyzeRule.AnalyzeUrl
 import io.legado.app.utils.GSON
 import io.legado.app.utils.MD5Utils
+import io.legado.app.utils.FileUtils
 import io.legado.app.utils.StringUtils
 import io.legado.app.utils.fromJsonObject
 import io.legado.app.utils.splitNotBlank
@@ -216,6 +217,26 @@ object LocalAudiobookFileGenerator {
             if (timeline.isEmpty()) return null
             ChapterPlaybackAudio(file, format, timeline)
         }.getOrNull()
+    }
+
+    fun clearBookAudioCache(context: Context, bookName: String): Boolean {
+        val dir = bookDir(context.applicationContext, bookName)
+        return if (dir.exists()) {
+            FileUtils.delete(dir, deleteRootDir = true)
+        } else {
+            true
+        }
+    }
+
+    fun clearAllAudioCache(context: Context): Boolean {
+        val root = context.applicationContext.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+            ?: File(context.applicationContext.filesDir, "audiobook")
+        val dir = File(root, "阅读有声书")
+        return if (dir.exists()) {
+            FileUtils.delete(dir, deleteRootDir = true)
+        } else {
+            true
+        }
     }
 
     suspend fun generate(
