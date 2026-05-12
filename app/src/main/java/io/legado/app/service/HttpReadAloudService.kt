@@ -33,6 +33,9 @@ import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.HttpTTS
 import io.legado.app.exception.NoStackTraceException
+import io.legado.app.help.TtsServerDbBridge
+import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
+import io.legado.app.help.audiobook.ProtectedAudiobookFile
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.coroutine.Coroutine
@@ -54,6 +57,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -65,6 +69,7 @@ import java.io.File
 import java.io.InputStream
 import java.net.ConnectException
 import java.net.SocketTimeoutException
+import kotlin.math.roundToLong
 
 /**
  * 在线朗读
@@ -101,6 +106,9 @@ class HttpReadAloudService : BaseReadAloudService(),
     private var downloadTask: Coroutine<*>? = null
     private var backgroundPreloadTask: Coroutine<*>? = null
     private var playIndexJob: Job? = null
+    private var chapterAudioMode = false
+    private var chapterPlaybackAudio: LocalAudiobookFileGenerator.ChapterPlaybackAudio? = null
+    private var skipChapterAudioOnce = false
     private var downloadErrorNo: Int = 0
     private var playErrorNo = 0
     private val downloadTaskActiveLock = Mutex()
@@ -114,6 +122,8 @@ class HttpReadAloudService : BaseReadAloudService(),
         super.onDestroy()
         downloadTask?.cancel()
         backgroundPreloadTask?.cancel()
+        chapterAudioMode = false
+        chapterPlaybackAudio = null
         exoPlayer.release()
         cache.release()
         Coroutine.async {
@@ -124,11 +134,21 @@ class HttpReadAloudService : BaseReadAloudService(),
     override fun play() {
         pageChanged = false
         exoPlayer.stop()
+        chapterAudioMode = false
+        chapterPlaybackAudio = null
         if (!requestFocus()) return
         if (contentList.isEmpty()) {
             AppLog.putDebug("朗读列表为空")
             ReadBook.readAloud()
         } else {
+            if (skipChapterAudioOnce) {
+                skipChapterAudioOnce = false
+            } else {
+                findCurrentChapterPlaybackAudio()?.let { playback ->
+                    playChapterAudio(playback)
+                    return
+                }
+            }
             super.play()
             if (AppConfig.streamReadAloudAudio) {
                 downloadAndPlayAudiosStream()
@@ -141,6 +161,8 @@ class HttpReadAloudService : BaseReadAloudService(),
     override fun playStop() {
         exoPlayer.stop()
         playIndexJob?.cancel()
+        chapterAudioMode = false
+        chapterPlaybackAudio = null
     }
 
     private fun updateNextPos() {
@@ -156,6 +178,8 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     private fun downloadAndPlayAudios() {
         exoPlayer.clearMediaItems()
+        chapterAudioMode = false
+        chapterPlaybackAudio = null
         downloadTask?.cancel()
         downloadTask = execute {
             downloadTaskActiveLock.withLock {
@@ -284,6 +308,8 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     private fun downloadAndPlayAudiosStream() {
         exoPlayer.clearMediaItems()
+        chapterAudioMode = false
+        chapterPlaybackAudio = null
         downloadTask?.cancel()
         downloadTask = execute {
             downloadTaskActiveLock.withLock {
@@ -569,8 +595,115 @@ class HttpReadAloudService : BaseReadAloudService(),
                 play()
             } else {
                 exoPlayer.play()
-                upPlayPos()
+                if (chapterAudioMode) {
+                    upChapterAudioPlayPos()
+                } else {
+                    upPlayPos()
+                }
             }
+        }
+    }
+
+    private fun findCurrentChapterPlaybackAudio(): LocalAudiobookFileGenerator.ChapterPlaybackAudio? {
+        val book = ReadBook.book ?: return null
+        val chapter = textChapter?.chapter ?: return null
+        return LocalAudiobookFileGenerator.findChapterPlaybackAudio(
+            context = this,
+            bookName = book.name,
+            chapter = TtsServerDbBridge.AudiobookChapter(
+                chapterIndex = chapter.index,
+                chapterTitle = chapter.title,
+                chapterText = ""
+            )
+        )
+    }
+
+    private fun playChapterAudio(playback: LocalAudiobookFileGenerator.ChapterPlaybackAudio) {
+        downloadTask?.cancel()
+        backgroundPreloadTask?.cancel()
+        playIndexJob?.cancel()
+        chapterAudioMode = true
+        chapterPlaybackAudio = playback
+        super.play()
+        val startMs = chapterAudioSeekPosition(playback).coerceAtLeast(0L)
+        val mediaSource = createChapterAudioMediaSource(playback)
+        exoPlayer.clearMediaItems()
+        exoPlayer.setMediaSource(mediaSource)
+        exoPlayer.prepare()
+        exoPlayer.seekTo(startMs)
+        AppLog.putDebug("使用整章音频朗读: ${playback.file.absolutePath} seek=$startMs")
+    }
+
+    private fun chapterAudioSeekPosition(playback: LocalAudiobookFileGenerator.ChapterPlaybackAudio): Long {
+        val item = playback.timeline.firstOrNull { it.index >= nowSpeak }
+            ?: playback.timeline.lastOrNull()
+            ?: return 0L
+        if (paragraphStartPos <= 0) return item.startMs
+        val textLength = item.text.length.coerceAtLeast(1)
+        val progress = (paragraphStartPos.toFloat() / textLength).coerceIn(0f, 1f)
+        return item.startMs + ((item.endMs - item.startMs) * progress).roundToLong()
+    }
+
+    private fun createChapterAudioMediaSource(
+        playback: LocalAudiobookFileGenerator.ChapterPlaybackAudio
+    ): MediaSource {
+        return if (
+            playback.format == ProtectedAudiobookFile.FORMAT ||
+            ProtectedAudiobookFile.isProtectedFile(playback.file)
+        ) {
+            val factory = DataSource.Factory {
+                InputStreamDataSource {
+                    ProtectedAudiobookFile.openMp3InputStream(this, playback.file)
+                }
+            }
+            DefaultMediaSourceFactory(this)
+                .setDataSourceFactory(factory)
+                .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                .createMediaSource(MediaItem.fromUri(Uri.fromFile(playback.file)))
+        } else {
+            DefaultMediaSourceFactory(this)
+                .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+                .createMediaSource(MediaItem.fromUri(Uri.fromFile(playback.file)))
+        }
+    }
+
+    private fun upChapterAudioPlayPos() {
+        playIndexJob?.cancel()
+        val textChapter = textChapter ?: return
+        val playback = chapterPlaybackAudio ?: return
+        playIndexJob = lifecycleScope.launch {
+            while (chapterAudioMode && !pause && isActive) {
+                val position = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val item = playback.timeline.lastOrNull { it.startMs <= position }
+                    ?: playback.timeline.firstOrNull()
+                if (item != null) {
+                    val itemIndex = item.index.coerceIn(0, contentList.lastIndex)
+                    val itemDuration = (item.endMs - item.startMs).coerceAtLeast(1L)
+                    val itemProgress = ((position - item.startMs).coerceIn(0L, itemDuration)).toFloat() / itemDuration
+                    nowSpeak = itemIndex
+                    val segmentStart = contentList.take(itemIndex).sumOf { it.length + 1 }
+                    val segmentTextLength = contentList.getOrNull(itemIndex)?.length ?: item.text.length
+                    readAloudNumber = segmentStart + (segmentTextLength * itemProgress).toInt()
+                    syncPageForReadAloudNumber(textChapter)
+                    upTtsProgress(readAloudNumber + 1)
+                }
+                delay(350)
+            }
+        }
+    }
+
+    private fun syncPageForReadAloudNumber(textChapter: TextChapter) {
+        while (pageIndex + 1 < textChapter.pageSize &&
+            readAloudNumber >= textChapter.getReadLength(pageIndex + 1)
+        ) {
+            pageIndex++
+            ReadBook.moveToNextPage()
+        }
+        while (pageIndex > 0 &&
+            readAloudNumber < textChapter.getReadLength(pageIndex)
+        ) {
+            pageIndex--
+            ReadBook.moveToPrevPage()
         }
     }
 
@@ -605,6 +738,7 @@ class HttpReadAloudService : BaseReadAloudService(),
      * 更新朗读速度
      */
     override fun upSpeechRate(reset: Boolean) {
+        if (chapterAudioMode) return
         downloadTask?.cancel()
         backgroundPreloadTask?.cancel()
         exoPlayer.stop()
@@ -642,12 +776,25 @@ class HttpReadAloudService : BaseReadAloudService(),
                 // 准备好
                 if (pause) return
                 exoPlayer.play()
-                upPlayPos()
+                if (chapterAudioMode) {
+                    upChapterAudioPlayPos()
+                } else {
+                    upPlayPos()
+                }
             }
 
             Player.STATE_ENDED -> {
                 // 结束
                 playErrorNo = 0
+                if (chapterAudioMode) {
+                    chapterAudioMode = false
+                    chapterPlaybackAudio = null
+                    playIndexJob?.cancel()
+                    exoPlayer.stop()
+                    exoPlayer.clearMediaItems()
+                    nextChapter()
+                    return
+                }
                 updateNextPos()
                 exoPlayer.stop()
                 exoPlayer.clearMediaItems()
@@ -668,6 +815,7 @@ class HttpReadAloudService : BaseReadAloudService(),
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        if (chapterAudioMode) return
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
             playErrorNo = 0
@@ -678,6 +826,16 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     override fun onPlayerError(error: PlaybackException) {
         super.onPlayerError(error)
+        if (chapterAudioMode) {
+            AppLog.put("整章音频播放失败，回退逐句朗读\n${error.localizedMessage}", error)
+            chapterAudioMode = false
+            chapterPlaybackAudio = null
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            skipChapterAudioOnce = true
+            play()
+            return
+        }
         AppLog.put("朗读错误\n${contentList[nowSpeak]}", error)
         deleteCurrentSpeakFile()
         playErrorNo++
