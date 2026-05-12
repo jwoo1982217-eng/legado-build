@@ -1,6 +1,6 @@
 var SpeechRuleJS = (function () {
     var RULE_NAME = "阅读端文本分析规则（抽离版）";
-    var RULE_VERSION = "1.1.0";
+    var RULE_VERSION = "1.2.0";
     var NARRATOR = "旁白";
     var UNKNOWN = "未知角色";
 
@@ -104,8 +104,8 @@ var SpeechRuleJS = (function () {
         if (name === NARRATOR) {
             return { name: NARRATOR, gender: "旁白", ageType: "旁白", voiceTag: "旁白" };
         }
-        if (!name || name === UNKNOWN) {
-            return { name: UNKNOWN, gender: "待定", ageType: "男/男青年", voiceTag: "男/男青年01" };
+        if (isUnknownRoleName(name)) {
+            return { name: UNKNOWN, gender: "待定", ageType: "待定", voiceTag: "" };
         }
         var gender = "待定";
         var ageType = "男/男青年";
@@ -135,6 +135,18 @@ var SpeechRuleJS = (function () {
             ageType: ageType,
             voiceTag: defaultVoice(gender, ageType)
         };
+    }
+
+    function isUnknownRoleName(name) {
+        name = normalizeLine(name);
+        return !name || name === UNKNOWN || name === "未知发言人" || name === "角色待定" || name === "未知" || /^unknown$/i.test(name);
+    }
+
+    function normalizeModelRoleName(name) {
+        name = cleanSpeakerName(name || "");
+        if (!name || isUnknownRoleName(name)) return NARRATOR;
+        if (name === "叙述者" || name === "narration" || name === "旁白") return NARRATOR;
+        return name;
     }
 
     function defaultVoice(gender, ageType) {
@@ -299,12 +311,105 @@ var SpeechRuleJS = (function () {
         return queue;
     }
 
+    function analyzeQueueByModel(payload, queue) {
+        var model = pickModel(payload);
+        if (!model || !queue || !queue.length) return queue;
+        var batchSize = 90;
+        for (var start = 0; start < queue.length; start += batchSize) {
+            var batch = queue.slice(start, start + batchSize);
+            try {
+                applyModelBatch(payload, model, queue, batch);
+            } catch (e) {
+                log("AI 台词归属分析失败，保留本地结果：" + e);
+                return queue;
+            }
+        }
+        return queue;
+    }
+
+    function applyModelBatch(payload, model, fullQueue, batch) {
+        var existingRoles = payload && payload.characterRecords ? payload.characterRecords : [];
+        var items = [];
+        for (var i = 0; i < batch.length; i++) {
+            items.push({
+                index: batch[i].index,
+                text: batch[i].text,
+                localRole: batch[i].roleName || NARRATOR
+            });
+        }
+        var prompt = [
+            "你是小说有声书文本分析器。请只输出 JSON，不要 Markdown，不要解释。",
+            "任务：逐句判断每一条文本是旁白还是角色台词，并给角色标注性别年龄。",
+            "重要规则：",
+            "1. 输出 items 数量必须等于输入 items 数量，index 必须原样保留。",
+            "2. 旁白/环境描写/动作描写 roleName 填“旁白”。",
+            "3. 人物直接说话、心理独白、明确跟随某角色视角的短句，roleName 填角色名。",
+            "4. 不确定时填“旁白”，禁止输出“未知角色”。",
+            "5. gender 只能是 男、女、待定。",
+            "6. ageType 只能从以下选：男/男童、女/女童、男/少年、女/少女、男/男青年、女/女青年、男/男中年、女/女中年、男/男老年、女/女老年、待定。",
+            "7. 不要改写 text，不要删除句子。",
+            "已存在角色表，优先沿用这些角色名和性别年龄：",
+            JSON.stringify(existingRoles),
+            "输入 items：",
+            JSON.stringify(items),
+            "输出格式：{\"items\":[{\"index\":1,\"roleName\":\"旁白\",\"gender\":\"待定\",\"ageType\":\"待定\",\"emotion\":\"neutral\"}]}"
+        ].join("\n");
+        var content = callChatModel(model, prompt);
+        var data = parseJsonLoose(content);
+        var list = data && (data.items || data.audioQueue || data.lines || data.queue || data);
+        if (!list || typeof list.length === "undefined") throw "模型返回格式没有 items";
+        var map = {};
+        for (var r = 0; r < list.length; r++) {
+            var row = list[r] || {};
+            var idx = Number(row.index);
+            if (!idx) continue;
+            map[idx] = row;
+        }
+        for (var q = 0; q < batch.length; q++) {
+            var item = batch[q];
+            var modelItem = map[item.index];
+            if (!modelItem) continue;
+            var roleName = normalizeModelRoleName(modelItem.roleName || modelItem.speaker || modelItem.character || "");
+            var gender = String(modelItem.gender || "待定");
+            var ageType = voicePoolPrefix(modelItem.ageType || modelItem.age || "待定", gender);
+            if (roleName === NARRATOR) {
+                item.roleName = NARRATOR;
+                item.displayRoleName = NARRATOR;
+                item.tag = "narration";
+                item.voice = "旁白";
+                item.voiceTag = "旁白";
+                item.displayVoice = "旁白";
+                item.characterInfo = { name: NARRATOR, gender: "旁白", ageType: "旁白", voiceTag: "旁白" };
+            } else {
+                var character = inferCharacter(roleName);
+                if (gender && gender !== "待定") character.gender = gender;
+                if (ageType && ageType !== "待定") character.ageType = ageType;
+                character.voiceTag = normalizeVoiceTag(modelItem.voiceTag || modelItem.voice || "", character.ageType, character.gender);
+                item.roleName = roleName;
+                item.displayRoleName = roleName;
+                item.tag = "dialogue";
+                item.voice = character.voiceTag;
+                item.voiceTag = character.voiceTag;
+                item.displayVoice = character.voiceTag;
+                item.characterInfo = {
+                    name: roleName,
+                    gender: character.gender,
+                    ageType: character.ageType,
+                    voiceTag: character.voiceTag
+                };
+            }
+            if (modelItem.emotion) item.emotion = String(modelItem.emotion);
+        }
+        log("AI 台词归属完成：" + batch.length + " 句");
+        return fullQueue;
+    }
+
     function collectRoleNames(queue) {
         var seen = {};
         var names = [];
         for (var i = 0; i < queue.length; i++) {
             var name = queue[i].roleName;
-            if (!name || name === NARRATOR || name === UNKNOWN || seen[name]) continue;
+            if (!name || name === NARRATOR || isUnknownRoleName(name) || seen[name]) continue;
             seen[name] = true;
             names.push(name);
         }
@@ -334,7 +439,7 @@ var SpeechRuleJS = (function () {
         for (var i = 0; i < queue.length; i++) {
             var item = queue[i] || {};
             var name = item.roleName || item.displayRoleName || "";
-            if (!name || name === NARRATOR || name === UNKNOWN || map[name]) continue;
+            if (!name || name === NARRATOR || isUnknownRoleName(name) || map[name]) continue;
             var info = item.characterInfo || inferCharacter(name);
             var voiceTag = normalizeVoiceTag(
                 info.voiceTag || item.voiceTag || item.voice || "",
@@ -447,6 +552,7 @@ var SpeechRuleJS = (function () {
             payload = payload || {};
             log("开始分析：" + (payload.bookName || "") + " / " + (payload.chapterTitle || ""));
             var queue = buildLocalQueue(payload.chapterText || "");
+            queue = analyzeQueueByModel(payload, queue);
             queue = improveCharactersByModel(payload, queue);
             queue = normalizeQueue(queue);
             log("完成台词本：" + queue.length + " 句");

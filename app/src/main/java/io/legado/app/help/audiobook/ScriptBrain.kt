@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Environment
 import com.script.ScriptBindings
 import com.script.rhino.RhinoScriptEngine
+import io.legado.app.help.book.BookHelp
+import io.legado.app.help.book.ContentProcessor
 import io.legado.app.help.http.okHttpClient
 import io.legado.app.model.ReadBook
 import io.legado.app.utils.getPrefString
@@ -364,12 +366,34 @@ object ScriptBrain {
     private fun currentChapterPayload(): ChapterPayload {
         val book = ReadBook.book
         val chapter = ReadBook.curTextChapter
+        val chapterText = if (book != null && chapter != null) {
+            runCatching {
+                BookHelp.getContent(book, chapter.chapter)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let {
+                        ContentProcessor.get(book)
+                            .getContent(
+                                book = book,
+                                chapter = chapter.chapter,
+                                content = it,
+                                includeTitle = false
+                            )
+                            .toString()
+                            .trim()
+                    }
+            }.getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?: chapter.getContent().trim().takeIf { it.isNotBlank() }
+                ?: chapter.getNeedReadAloud(0, false, 0).trim()
+        } else {
+            ""
+        }
         return ChapterPayload(
             bookName = book?.name?.ifBlank { "未命名书籍" } ?: "未命名书籍",
             bookUrl = book?.bookUrl.orEmpty(),
             chapterIndex = chapter?.chapter?.index ?: ReadBook.durChapterIndex,
             chapterTitle = chapter?.let { it.title.ifBlank { it.chapter.title } } ?: "当前章",
-            chapterText = chapter?.getNeedReadAloud(0, false, 0).orEmpty(),
+            chapterText = chapterText,
         )
     }
 
@@ -558,7 +582,7 @@ object ScriptBrain {
         val roleMap = obj.optJSONObject("roleMap") ?: obj.optJSONObject("charactersMap")
         val fromMap = roleMap?.let { parseCharacterMap(it) }.orEmpty()
         return (fromArray + fromMap)
-            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && it.name != UNKNOWN_ROLE }
+            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && !it.name.isUnknownRoleName() }
             .distinctBy { it.name }
     }
 
@@ -586,7 +610,7 @@ object ScriptBrain {
         val name = firstText(item, "name", "roleName", "character", "speaker", "label")
             .ifBlank { fallbackName }
             .trim()
-        if (name.isBlank() || name == NARRATOR_ROLE || name == UNKNOWN_ROLE) return null
+        if (name.isBlank() || name == NARRATOR_ROLE || name.isUnknownRoleName()) return null
         val gender = firstText(item, "gender").ifBlank { "待定" }
         val age = firstText(item, "ageType", "age", "genderAge").ifBlank { voicePoolPrefix("", gender) }
         val voice = firstText(item, "voiceTag", "voice", "displayVoice", "actualVoice", "selectedVoice")
@@ -606,7 +630,7 @@ object ScriptBrain {
         rawLines: List<ScriptLine>,
     ): LockedAnalysisData {
         val existingByName = existingCharacters
-            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && it.name != UNKNOWN_ROLE }
+            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && !it.name.isUnknownRoleName() }
             .associateBy { it.name }
         val occupied = linkedMapOf<String, String>()
         existingCharacters.forEach { character ->
@@ -648,12 +672,12 @@ object ScriptBrain {
         }
 
         suggestedCharacters
-            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && it.name != UNKNOWN_ROLE }
+            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && !it.name.isUnknownRoleName() }
             .distinctBy { it.name }
             .forEach { ensureCharacter(it.name, suggestion = it, suggestedVoice = it.voiceTag) }
 
         val finalLines = rawLines.map { line ->
-            if (line.isNarration || line.roleName == NARRATOR_ROLE) {
+            if (line.isNarration || line.roleName == NARRATOR_ROLE || line.roleName.isUnknownRoleName()) {
                 line.copy(roleName = NARRATOR_ROLE, voiceTag = "旁白", isNarration = true)
             } else {
                 val character = ensureCharacter(line.roleName, suggestedVoice = line.voiceTag)
@@ -678,7 +702,7 @@ object ScriptBrain {
         return lines
             .asSequence()
             .filterNot { it.isNarration }
-            .filter { it.roleName.isNotBlank() && it.roleName != UNKNOWN_ROLE }
+            .filter { it.roleName.isNotBlank() && !it.roleName.isUnknownRoleName() }
             .groupBy { it.roleName }
             .map { (name, roleLines) ->
                 val base = inferCharacter(name)
@@ -810,7 +834,7 @@ object ScriptBrain {
     private fun normalizeRoleName(role: String, tag: String): String {
         val value = role.trim()
         if (value.equals("narration", ignoreCase = true) || value == "旁白") return NARRATOR_ROLE
-        if (value.equals("duihua", ignoreCase = true) || value.equals("dialogue", ignoreCase = true)) {
+        if (value.isUnknownRoleName() || value.equals("duihua", ignoreCase = true) || value.equals("dialogue", ignoreCase = true)) {
             return UNKNOWN_ROLE
         }
         if (value.isNotBlank()) return value
@@ -858,6 +882,16 @@ object ScriptBrain {
     private fun String.isLikelySpeakerName(): Boolean {
         if (length !in 1..8) return false
         return this !in pronouns
+    }
+
+    private fun String.isUnknownRoleName(): Boolean {
+        val value = trim()
+        return value.isBlank()
+                || value == UNKNOWN_ROLE
+                || value == "未知角色"
+                || value == "未知发言人"
+                || value == "未知"
+                || value.equals("unknown", ignoreCase = true)
     }
 
     private fun inferCharacter(name: String): ScriptCharacter {
