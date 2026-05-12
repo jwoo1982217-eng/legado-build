@@ -2,6 +2,7 @@ package io.legado.app.help.audiobook
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech
@@ -32,6 +33,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import splitties.init.appCtx
 import java.io.File
 import java.io.OutputStream
 import java.nio.ByteBuffer
@@ -69,6 +71,19 @@ object LocalAudiobookFileGenerator {
         val failedItems: Int,
         val error: String,
         val updatedAt: Long,
+    )
+
+    data class TimelineItem(
+        val index: Int,
+        val text: String,
+        val startMs: Long,
+        val endMs: Long,
+    )
+
+    data class ChapterPlaybackAudio(
+        val file: File,
+        val format: String,
+        val timeline: List<TimelineItem>,
     )
 
     fun shouldUseTtsServerBridge(): Boolean {
@@ -159,6 +174,52 @@ object LocalAudiobookFileGenerator {
             error = "",
             updatedAt = 0L,
         )
+    }
+
+    fun findChapterPlaybackAudio(
+        context: Context,
+        bookName: String,
+        chapter: TtsServerDbBridge.AudiobookChapter
+    ): ChapterPlaybackAudio? {
+        val dir = chapterDir(context.applicationContext, bookName, chapter)
+        val manifestFile = File(dir, "manifest.json")
+            .takeIf { it.exists() && it.length() > 0 }
+            ?: return null
+        return runCatching {
+            val json = JSONObject(manifestFile.readText(Charsets.UTF_8))
+            val status = json.optString("status")
+            if (status != "ready") return null
+            val path = json.optString("path")
+            val file = File(path)
+            if (!file.exists() || file.length() <= 0) return null
+            val format = json.optString("format").ifBlank { file.chapterAudioFormat() }
+            if (
+                format != ProtectedAudiobookFile.FORMAT &&
+                !ProtectedAudiobookFile.isProtectedFile(file) &&
+                !file.extension.equals("mp3", ignoreCase = true)
+            ) {
+                return null
+            }
+            val items = json.optJSONArray("items") ?: return null
+            val timeline = buildList {
+                for (index in 0 until items.length()) {
+                    val item = items.optJSONObject(index) ?: continue
+                    val startMs = item.optLong("startMs", -1L)
+                    val endMs = item.optLong("endMs", -1L)
+                    if (startMs < 0 || endMs <= startMs) continue
+                    add(
+                        TimelineItem(
+                            index = item.optInt("index", index),
+                            text = item.optString("text"),
+                            startMs = startMs,
+                            endMs = endMs
+                        )
+                    )
+                }
+            }
+            if (timeline.isEmpty()) return null
+            ChapterPlaybackAudio(file, format, timeline)
+        }.getOrNull()
     }
 
     suspend fun generate(
@@ -387,7 +448,8 @@ object LocalAudiobookFileGenerator {
 
         return when {
             ttsEngine.isNullOrBlank() || sysEngine.isNullOrBlank() || sysEngine == TtsServerDbBridge.TTS_PACKAGE -> {
-                EnginePlan.TtsServer
+                TtsServerDbBridge.ensureRunning(appCtx)
+                EnginePlan.Http(TtsServerDbBridge.directHttpTts())
             }
 
             else -> EnginePlan.System(sysEngine)
@@ -427,7 +489,7 @@ object LocalAudiobookFileGenerator {
         if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
 
         val outFile = buildChapterAudioFile(context, bookName, chapter, audioSegments)
-        return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
+        return ChapterBuildResult(outFile, audioSegments.toManifestItems())
     }
 
     private suspend fun generateSystemChapter(
@@ -476,7 +538,7 @@ object LocalAudiobookFileGenerator {
 
             if (audioSegments.isEmpty()) error("当前章节没有生成到可用音频片段")
             val outFile = buildChapterAudioFile(context, bookName, chapter, audioSegments)
-            return ChapterBuildResult(outFile, audioSegments.map { it.toManifestItem() })
+            return ChapterBuildResult(outFile, audioSegments.toManifestItems())
         } finally {
             withContext(Main) {
                 tts.stop()
@@ -1072,6 +1134,9 @@ object LocalAudiobookFileGenerator {
                         put("path", item.path)
                         put("format", item.format)
                         put("sizeBytes", item.sizeBytes)
+                        put("startMs", item.startMs)
+                        put("endMs", item.endMs)
+                        put("durationMs", item.durationMs)
                         put("fromCache", item.fromCache)
                         put("error", item.error)
                     })
@@ -1132,19 +1197,43 @@ object LocalAudiobookFileGenerator {
         val file: File,
         val bytes: ByteArray,
         val fromCache: Boolean,
-    ) {
-        fun toManifestItem(): ManifestItem {
-            return ManifestItem(
-                index = index,
-                text = text,
+    )
+
+    private fun List<AudioSegment>.toManifestItems(): List<ManifestItem> {
+        var cursorMs = 0L
+        return map { segment ->
+            val durationMs = audioDurationMs(segment.file, segment.bytes).coerceAtLeast(1L)
+            val item = ManifestItem(
+                index = segment.index,
+                text = segment.text,
                 status = "ready",
-                path = file.absolutePath,
-                format = file.extension,
-                sizeBytes = file.length(),
-                fromCache = fromCache,
+                path = segment.file.absolutePath,
+                format = segment.file.extension,
+                sizeBytes = segment.file.length(),
+                startMs = cursorMs,
+                endMs = cursorMs + durationMs,
+                durationMs = durationMs,
+                fromCache = segment.fromCache,
                 error = ""
             )
+            cursorMs += durationMs
+            item
         }
+    }
+
+    private fun audioDurationMs(file: File, bytes: ByteArray): Long {
+        return runCatching {
+            MediaMetadataRetriever().use { retriever ->
+                retriever.setDataSource(file.absolutePath)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            }
+        }.getOrNull()
+            ?: estimateDurationMs(bytes)
+    }
+
+    private fun estimateDurationMs(bytes: ByteArray): Long {
+        val kb = (bytes.size / 1024L).coerceAtLeast(1L)
+        return (kb * 80L).coerceIn(600L, 30_000L)
     }
 
     private data class ManifestItem(
@@ -1154,6 +1243,9 @@ object LocalAudiobookFileGenerator {
         val path: String,
         val format: String,
         val sizeBytes: Long,
+        val startMs: Long,
+        val endMs: Long,
+        val durationMs: Long,
         val fromCache: Boolean,
         val error: String,
     )
