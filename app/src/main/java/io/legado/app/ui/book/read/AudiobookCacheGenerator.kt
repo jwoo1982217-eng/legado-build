@@ -1,6 +1,10 @@
 package io.legado.app.ui.book.read
 
 import android.content.Context
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -69,32 +73,41 @@ class AudiobookCacheGenerator(
         val safeStartIndex = ReadBook.durChapterIndex.coerceIn(0, chapterCount - 1)
         val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
         val submitCount = (chapterCount - safeStartIndex).coerceAtMost(preloadCount + 1)
-        val statusView = TextView(context).apply {
+        val statusContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(24.dpToPx(), 16.dpToPx(), 24.dpToPx(), 8.dpToPx())
-            textSize = 16f
-            text = "正在查询章节生成状态..."
         }
         val statusDialog = AlertDialog.Builder(context)
             .setTitle("合成进度")
-            .setView(ScrollView(context).apply { addView(statusView) })
+            .setView(ScrollView(context).apply { addView(statusContainer) })
             .setPositiveButton(R.string.ok, null)
             .setNeutralButton("刷新", null)
             .create()
 
         fun refresh() {
-            statusView.text = "正在查询章节生成状态..."
+            renderStatusLoading(statusContainer)
             coroutineScope.launch {
-                statusView.text = runCatching {
+                runCatching {
                     withContext(IO) {
-                        buildChapterStatusText(
+                        buildChapterStatusData(
                             book = book,
                             startIndex = safeStartIndex,
                             submitCount = submitCount,
                             preloadCount = preloadCount
                         )
                     }
-                }.getOrElse { error ->
-                    "合成进度查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
+                }.onSuccess { data ->
+                    renderChapterStatus(
+                        container = statusContainer,
+                        book = book,
+                        data = data,
+                        refresh = { refresh() }
+                    )
+                }.onFailure { error ->
+                    renderStatusMessage(
+                        container = statusContainer,
+                        message = "合成进度查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
+                    )
                 }
             }
         }
@@ -174,19 +187,23 @@ class AudiobookCacheGenerator(
         job?.cancel()
     }
 
-    private fun buildChapterStatusText(
+    private fun buildChapterStatusData(
         book: Book,
         startIndex: Int,
         submitCount: Int,
         preloadCount: Int
-    ): String {
+    ): ChapterStatusData {
         val chapters = collectChapterPreview(
             bookUrl = book.bookUrl,
             startIndex = startIndex,
             submitCount = submitCount
         )
         if (chapters.isEmpty()) {
-            return "当前缓存窗口没有可查询章节。"
+            return ChapterStatusData(
+                header = "当前缓存窗口没有可查询章节。",
+                rows = emptyList(),
+                footer = ""
+            )
         }
 
         val snapshots = chapters.map { chapter ->
@@ -202,12 +219,16 @@ class AudiobookCacheGenerator(
         }
         val readyCount = snapshots.count { (_, status) -> status.status.isReadyStatus() }
         val failedCount = snapshots.count { (_, status) -> status.status.lowercase() == "failed" }
-        val states = snapshots.map { (chapter, status) ->
-            chapter.copy(state = status.toChapterQueueState())
+        val rows = snapshots.map { (chapter, status) ->
+            ChapterStatusRow(
+                chapter = chapter.copy(state = status.toChapterQueueState()),
+                status = status,
+                canDelete = status.status.lowercase() != "not_generated"
+            )
         }
         val useTtsServer = LocalAudiobookFileGenerator.shouldUseTtsServerBridge()
 
-        return formatGenerationStatus(
+        return ChapterStatusData(
             header = buildString {
                 append(
                     if (useTtsServer) {
@@ -220,10 +241,7 @@ class AudiobookCacheGenerator(
                 append(preloadCount)
                 append(" 章")
                 append("\n查询对象：句子片段 + 完整章节音频")
-            },
-            chapters = states,
-            footer = buildString {
-                append("已完成章节：")
+                append("\n已完成章节：")
                 append(readyCount)
                 append("/")
                 append(chapters.size)
@@ -231,17 +249,127 @@ class AudiobookCacheGenerator(
                     append("，失败 ")
                     append(failedCount)
                 }
-                append("\n\n章节详情：\n")
-                snapshots.forEachIndexed { index, (chapter, status) ->
-                    if (index > 0) append("\n")
-                    append(formatChapterStatusDetail(chapter, status))
-                }
+            },
+            rows = rows,
+            footer = buildString {
                 if (useTtsServer) {
-                    append("\n\nJ.TTS 缓存工厂状态：\n")
+                    append("J.TTS 缓存工厂状态：\n")
                     append(buildTtsServerStatusSummary(chapters))
                 }
             }
         )
+    }
+
+    private fun renderStatusLoading(container: LinearLayout) {
+        renderStatusMessage(container, "正在查询章节生成状态...")
+    }
+
+    private fun renderStatusMessage(container: LinearLayout, message: String) {
+        container.removeAllViews()
+        container.addView(TextView(context).apply {
+            textSize = 16f
+            text = message
+        })
+    }
+
+    private fun renderChapterStatus(
+        container: LinearLayout,
+        book: Book,
+        data: ChapterStatusData,
+        refresh: () -> Unit
+    ) {
+        container.removeAllViews()
+        container.addView(TextView(context).apply {
+            textSize = 16f
+            text = data.header
+        })
+        if (data.rows.isNotEmpty()) {
+            container.addView(TextView(context).apply {
+                textSize = 15f
+                text = "\n章节详情："
+            })
+        }
+        data.rows.forEach { row ->
+            container.addView(chapterStatusRowView(book, row, refresh))
+            container.addView(View(context).apply {
+                setBackgroundColor(0x1F000000)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    1
+                )
+            })
+        }
+        if (data.footer.isNotBlank()) {
+            container.addView(TextView(context).apply {
+                textSize = 15f
+                text = "\n${data.footer}"
+            })
+        }
+    }
+
+    private fun chapterStatusRowView(
+        book: Book,
+        row: ChapterStatusRow,
+        refresh: () -> Unit
+    ): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 10.dpToPx(), 0, 10.dpToPx())
+            addView(TextView(context).apply {
+                textSize = 15f
+                text = formatChapterStatusDetail(row.chapter, row.status)
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+            })
+            if (row.canDelete) {
+                addView(Button(context).apply {
+                    text = "删除"
+                    setOnClickListener {
+                        confirmDeleteChapterCache(book, row.chapter, refresh)
+                    }
+                })
+            }
+        }
+    }
+
+    private fun confirmDeleteChapterCache(
+        book: Book,
+        chapter: ChapterUiState,
+        refresh: () -> Unit
+    ) {
+        AlertDialog.Builder(context)
+            .setTitle("删除本章有声书缓存")
+            .setMessage(
+                "只删除第 ${chapter.chapterIndex + 1} 章「${chapter.title.ifBlank { "未命名章节" }}」的整章音频、manifest 和分句片段，其他章节不受影响。"
+            )
+            .setPositiveButton("删除") { _, _ ->
+                coroutineScope.launch {
+                    val success = withContext(IO) {
+                        LocalAudiobookFileGenerator.clearChapterAudioCache(
+                            context = context,
+                            bookName = book.name,
+                            chapter = TtsServerDbBridge.AudiobookChapter(
+                                chapterIndex = chapter.chapterIndex,
+                                chapterTitle = chapter.title,
+                                chapterText = ""
+                            )
+                        )
+                    }
+                    context.toastOnUi(
+                        if (success) {
+                            "已删除第 ${chapter.chapterIndex + 1} 章有声书缓存"
+                        } else {
+                            "第 ${chapter.chapterIndex + 1} 章缓存可能未完全删除"
+                        }
+                    )
+                    refresh()
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun buildTtsServerStatusSummary(chapters: List<ChapterUiState>): String {
@@ -761,6 +889,18 @@ class AudiobookCacheGenerator(
         val chapterIndex: Int,
         val title: String,
         var state: String
+    )
+
+    private data class ChapterStatusRow(
+        val chapter: ChapterUiState,
+        val status: LocalAudiobookFileGenerator.ChapterStatus,
+        val canDelete: Boolean
+    )
+
+    private data class ChapterStatusData(
+        val header: String,
+        val rows: List<ChapterStatusRow>,
+        val footer: String
     )
 
     private fun markChapterProgress(

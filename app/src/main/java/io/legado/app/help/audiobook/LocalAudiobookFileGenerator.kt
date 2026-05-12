@@ -228,6 +228,28 @@ object LocalAudiobookFileGenerator {
         }
     }
 
+    fun clearChapterAudioCache(
+        context: Context,
+        bookName: String,
+        chapter: TtsServerDbBridge.AudiobookChapter
+    ): Boolean {
+        val appContext = context.applicationContext
+        val dir = chapterDir(appContext, bookName, chapter)
+        val bookRoot = bookDir(appContext, bookName)
+        val baseName = chapterFileBaseName(chapter)
+        var success = true
+        if (dir.exists()) {
+            success = FileUtils.delete(dir, deleteRootDir = true) && success
+        }
+        listOf("json", ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio").forEach { extension ->
+            val file = File(bookRoot, "$baseName.$extension")
+            if (file.exists()) {
+                success = FileUtils.delete(file, deleteRootDir = true) && success
+            }
+        }
+        return success
+    }
+
     fun clearAllAudioCache(context: Context): Boolean {
         val root = context.applicationContext.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
             ?: File(context.applicationContext.filesDir, "audiobook")

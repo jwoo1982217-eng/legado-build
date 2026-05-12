@@ -136,6 +136,22 @@ object ReadAloud {
         }
     }
 
+    fun startAudioPreload(context: Context) {
+        if (BaseReadAloudService.isRun) {
+            val intent = Intent(context, aloudClass)
+            intent.action = IntentAction.startAudioPreload
+            context.startForegroundServiceCompat(intent)
+        }
+    }
+
+    fun stopAudioPreload(context: Context) {
+        if (BaseReadAloudService.isRun) {
+            val intent = Intent(context, aloudClass)
+            intent.action = IntentAction.stopAudioPreload
+            context.startForegroundServiceCompat(intent)
+        }
+    }
+
     fun setTimer(context: Context, minute: Int) {
         if (BaseReadAloudService.isRun) {
             val intent = Intent(context, aloudClass)

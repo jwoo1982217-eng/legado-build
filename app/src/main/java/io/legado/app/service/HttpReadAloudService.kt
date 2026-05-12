@@ -105,6 +105,8 @@ class HttpReadAloudService : BaseReadAloudService(),
     private var speechRate: Int = AppConfig.speechRatePlay + 5
     private var downloadTask: Coroutine<*>? = null
     private var backgroundPreloadTask: Coroutine<*>? = null
+    private var backgroundPreloadWindowKey: String? = null
+    private var backgroundPreloadToken: Long = 0L
     private var playIndexJob: Job? = null
     private var chapterAudioMode = false
     private var chapterPlaybackAudio: LocalAudiobookFileGenerator.ChapterPlaybackAudio? = null
@@ -112,6 +114,8 @@ class HttpReadAloudService : BaseReadAloudService(),
     private var downloadErrorNo: Int = 0
     private var playErrorNo = 0
     private val downloadTaskActiveLock = Mutex()
+    private val speakFileLocksLock = Mutex()
+    private val speakFileLocks = mutableMapOf<String, Mutex>()
 
     override fun onCreate() {
         super.onCreate()
@@ -122,6 +126,8 @@ class HttpReadAloudService : BaseReadAloudService(),
         super.onDestroy()
         downloadTask?.cancel()
         backgroundPreloadTask?.cancel()
+        backgroundPreloadWindowKey = null
+        backgroundPreloadToken++
         chapterAudioMode = false
         chapterPlaybackAudio = null
         exoPlayer.release()
@@ -141,6 +147,9 @@ class HttpReadAloudService : BaseReadAloudService(),
             AppLog.putDebug("朗读列表为空")
             ReadBook.readAloud()
         } else {
+            ReadAloud.httpTTS?.let {
+                startBackgroundPreload(it, ReadBook.durChapterIndex)
+            }
             if (skipChapterAudioOnce) {
                 skipChapterAudioOnce = false
             } else {
@@ -198,15 +207,10 @@ class HttpReadAloudService : BaseReadAloudService(),
                     val speakText = text.replace(AppPattern.notReadAloudRegex, "")
                     if (speakText.isEmpty()) {
                         AppLog.put("阅读段落内容为空，使用无声音频代替。\n朗读文本：$text")
-                        createSilentSound(fileName)
-                    } else if (!hasSpeakFile(fileName)) {
+                        ensureSpeakFileCached(httpTts, fileName, speakText)
+                    } else {
                         runCatching {
-                            val inputStream = getSpeakStream(httpTts, speakText)
-                            if (inputStream != null) {
-                                createSpeakFile(fileName, inputStream)
-                            } else {
-                                createSilentSound(fileName)
-                            }
+                            ensureSpeakFileCached(httpTts, fileName, speakText)
                         }.onFailure {
                             when (it) {
                                 is CancellationException -> Unit
@@ -233,15 +237,40 @@ class HttpReadAloudService : BaseReadAloudService(),
         return BookHelp.getContent(book, chapter)
     }
 
-    private fun startBackgroundPreload(httpTts: HttpTTS, startChapterIndex: Int) {
+    private fun startBackgroundPreload(
+        httpTts: HttpTTS,
+        startChapterIndex: Int,
+        force: Boolean = false
+    ) {
         val book = ReadBook.book ?: return
+        if (!AppConfig.audioPreloadEnabled || AppConfig.audioPreDownloadNum <= 0) {
+            return
+        }
+        val windowKey = listOf(
+            book.bookUrl,
+            httpTts.id,
+            httpTts.url,
+            speechRate,
+            startChapterIndex,
+            AppConfig.audioPreDownloadNum
+        ).joinToString("|")
+        if (!force && backgroundPreloadWindowKey == windowKey && backgroundPreloadTask != null) {
+            return
+        }
         backgroundPreloadTask?.cancel()
+        backgroundPreloadWindowKey = windowKey
+        val taskToken = ++backgroundPreloadToken
         backgroundPreloadTask = execute {
             runCatching {
                 preDownloadAudios(httpTts, book, startChapterIndex)
             }.onFailure {
                 if (it !is CancellationException) {
                     AppLog.put("有声书后台预缓存异常: ${it.localizedMessage}", it)
+                }
+            }.also {
+                if (backgroundPreloadWindowKey == windowKey && backgroundPreloadToken == taskToken) {
+                    backgroundPreloadWindowKey = null
+                    backgroundPreloadTask = null
                 }
             }
         }
@@ -254,9 +283,9 @@ class HttpReadAloudService : BaseReadAloudService(),
         }
         val limit = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
         if (limit <= 0) return
-        val startIndex = startChapterIndex + 1
+        val startIndex = startChapterIndex
         val endIndex = startChapterIndex + limit
-        AppLog.putDebug("有声书后台预缓存启动: ${book.name}, $startIndex..$endIndex")
+        AppLog.putDebug("有声书后台预缓存启动: ${book.name}, 第${startIndex + 1}章..第${endIndex + 1}章")
         for (targetIndex in startIndex..endIndex) {
             if (!AppConfig.audioPreloadEnabled || AppConfig.audioPreDownloadNum <= 0) {
                 AppLog.putDebug("有声书后台预缓存已关闭，停止后续章节请求。")
@@ -289,19 +318,37 @@ class HttpReadAloudService : BaseReadAloudService(),
             val fileName = chapterSpeakFileName(chapter, content)
             val speakText = content.replace(AppPattern.notReadAloudRegex, "")
             if (speakText.isEmpty()) {
-                if (!hasSpeakFile(fileName)) createSilentSound(fileName)
-            } else if (!hasSpeakFile(fileName)) {
+                ensureSpeakFileCached(httpTts, fileName, speakText)
+            } else {
                 runCatching {
-                    val inputStream = getSpeakStream(httpTts, speakText)
-                    if (inputStream != null) {
-                        createSpeakFile(fileName, inputStream)
-                    } else {
-                        createSilentSound(fileName)
-                    }
+                    ensureSpeakFileCached(httpTts, fileName, speakText)
                 }.onFailure {
                     if (it is CancellationException) throw it
                     AppLog.put("有声书后台预缓存音频失败: ${chapter.title}\n${it.localizedMessage}", it)
                 }
+            }
+        }
+    }
+
+    private suspend fun ensureSpeakFileCached(
+        httpTts: HttpTTS,
+        fileName: String,
+        speakText: String
+    ) {
+        val fileLock = speakFileLocksLock.withLock {
+            speakFileLocks.getOrPut(fileName) { Mutex() }
+        }
+        fileLock.withLock {
+            if (hasSpeakFile(fileName)) return
+            if (speakText.isEmpty()) {
+                createSilentSound(fileName)
+                return
+            }
+            val inputStream = getSpeakStream(httpTts, speakText)
+            if (inputStream != null) {
+                createSpeakFile(fileName, inputStream)
+            } else {
+                createSilentSound(fileName)
             }
         }
     }
@@ -620,7 +667,6 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     private fun playChapterAudio(playback: LocalAudiobookFileGenerator.ChapterPlaybackAudio) {
         downloadTask?.cancel()
-        backgroundPreloadTask?.cancel()
         playIndexJob?.cancel()
         chapterAudioMode = true
         chapterPlaybackAudio = playback
@@ -741,6 +787,8 @@ class HttpReadAloudService : BaseReadAloudService(),
         if (chapterAudioMode) return
         downloadTask?.cancel()
         backgroundPreloadTask?.cancel()
+        backgroundPreloadWindowKey = null
+        backgroundPreloadToken++
         exoPlayer.stop()
         speechRate = AppConfig.speechRatePlay + 5
         if (AppConfig.streamReadAloudAudio) {
@@ -755,6 +803,21 @@ class HttpReadAloudService : BaseReadAloudService(),
         ReadAloud.httpTTS?.let {
             startBackgroundPreload(it, ReadBook.durChapterIndex)
         }
+    }
+
+    protected override fun startAudioPreloadByCommand() {
+        ReadAloud.httpTTS?.let {
+            startBackgroundPreload(it, ReadBook.durChapterIndex, force = true)
+            AppLog.putDebug("已手动启动后台预缓存: ${ReadBook.book?.name.orEmpty()}")
+        }
+    }
+
+    protected override fun stopAudioPreloadByCommand() {
+        backgroundPreloadTask?.cancel()
+        backgroundPreloadTask = null
+        backgroundPreloadWindowKey = null
+        backgroundPreloadToken++
+        AppLog.putDebug("已手动暂停后台预缓存。")
     }
 
     override fun currentHttpTtsForAudiobookMerge(): HttpTTS? {

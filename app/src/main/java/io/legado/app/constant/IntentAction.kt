@@ -13,6 +13,8 @@ object IntentAction {
     const val prevParagraph = "prevParagraph"
     const val nextParagraph = "nextParagraph"
     const val upTtsSpeechRate = "upTtsSpeechRate"
+    const val startAudioPreload = "startAudioPreload"
+    const val stopAudioPreload = "stopAudioPreload"
     const val upTtsProgress = "upTtsProgress"
     const val adjustProgress = "adjustProgress"
     const val adjustSpeed = "adjustSpeed"

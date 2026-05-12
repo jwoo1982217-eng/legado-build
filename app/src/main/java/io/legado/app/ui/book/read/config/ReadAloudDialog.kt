@@ -230,8 +230,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
             AppConfig.audioPreloadEnabled = isChecked
             if (isChecked) {
+                ReadAloud.startAudioPreload(requireContext())
                 toastOnUi("后台预缓存已开启，数量按听书预加载数量执行")
             } else {
+                ReadAloud.stopAudioPreload(requireContext())
                 toastOnUi("后台预缓存已暂停")
             }
         }

@@ -224,6 +224,8 @@ abstract class BaseReadAloudService : BaseService(),
             IntentAction.pause -> pauseReadAloud()
             IntentAction.resume -> resumeReadAloud()
             IntentAction.upTtsSpeechRate -> upSpeechRate(true)
+            IntentAction.startAudioPreload -> startAudioPreloadByCommand()
+            IntentAction.stopAudioPreload -> stopAudioPreloadByCommand()
             IntentAction.prevParagraph -> prevP()
             IntentAction.nextParagraph -> nextP()
             IntentAction.prev -> prevChapter()
@@ -350,6 +352,10 @@ abstract class BaseReadAloudService : BaseService(),
     }
 
     abstract fun upSpeechRate(reset: Boolean = false)
+
+    protected open fun startAudioPreloadByCommand() = Unit
+
+    protected open fun stopAudioPreloadByCommand() = Unit
 
     protected fun markChapterFinishedByPlayback() {
         chapterFinishedByPlayback = true
