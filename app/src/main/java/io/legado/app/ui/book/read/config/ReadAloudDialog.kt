@@ -726,7 +726,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     private fun showScriptCharacters() {
         val snapshot = ScriptBrain.roleManagerSnapshot(requireContext())
         AlertDialog.Builder(requireContext())
-            .setTitle("编辑插件TTS")
+            .setTitle("角色管理")
             .setView(roleManagerPluginView(snapshot))
             .setNegativeButton("运行当前章") { _, _ -> runScriptRuleForCurrentChapter() }
             .setPositiveButton(android.R.string.ok, null)
@@ -737,7 +737,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         val context = requireContext()
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(16.dpToPx(), 10.dpToPx(), 16.dpToPx(), 16.dpToPx())
+            setPadding(14.dpToPx(), 8.dpToPx(), 14.dpToPx(), 12.dpToPx())
         }
 
         fun addText(text: String, size: Float = 15f, bold: Boolean = false, color: Int = Color.rgb(45, 45, 45)) {
@@ -746,18 +746,25 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 textSize = size
                 setTextColor(color)
                 if (bold) typeface = Typeface.DEFAULT_BOLD
-                setPadding(2.dpToPx(), 5.dpToPx(), 2.dpToPx(), 5.dpToPx())
+                includeFontPadding = false
+                setPadding(2.dpToPx(), 4.dpToPx(), 2.dpToPx(), 4.dpToPx())
             })
         }
 
         fun button(label: String, color: Int): Button {
             return Button(context).apply {
                 text = label
-                textSize = 14f
+                textSize = 12f
                 isAllCaps = false
+                minHeight = 0
+                minimumHeight = 0
+                minWidth = 0
+                minimumWidth = 0
+                includeFontPadding = false
+                setPadding(4.dpToPx(), 0, 4.dpToPx(), 0)
                 setTextColor(Color.WHITE)
                 background = GradientDrawable().apply {
-                    cornerRadius = 2.dpToPx().toFloat()
+                    cornerRadius = 4.dpToPx().toFloat()
                     setColor(color)
                 }
                 setOnClickListener { toastOnUi("$label：阅读端角色管理模块已接入") }
@@ -767,11 +774,11 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         fun addButtonRow(labels: List<String>, colors: List<Int>) {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 5.dpToPx(), 0, 5.dpToPx())
+                setPadding(0, 3.dpToPx(), 0, 3.dpToPx())
             }
             labels.forEachIndexed { index, label ->
                 row.addView(button(label, colors.getOrElse(index) { Color.rgb(80, 160, 80) }).apply {
-                    layoutParams = LinearLayout.LayoutParams(0, 48.dpToPx(), 1f).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 34.dpToPx(), 1f).apply {
                         setMargins(2.dpToPx(), 0, 2.dpToPx(), 0)
                     }
                 })
@@ -779,7 +786,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             container.addView(row)
         }
 
-        addText("内置模块：${snapshot.pluginName}  v${snapshot.pluginVersion} / ${snapshot.pluginAuthor}", 13f, color = Color.rgb(100, 100, 100))
         addButtonRow(
             listOf("新增角色", "创建新书", "备份恢复", "管理书籍"),
             listOf(Color.rgb(76, 175, 80), Color.rgb(33, 150, 243), Color.rgb(156, 39, 176), Color.rgb(255, 152, 0))
@@ -791,13 +797,14 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
         val bookRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 6.dpToPx(), 0, 8.dpToPx())
+            setPadding(0, 5.dpToPx(), 0, 6.dpToPx())
         }
         bookRow.addView(TextView(context).apply {
             text = snapshot.bookName
-            textSize = 16f
+            textSize = 14f
             setTextColor(Color.rgb(30, 30, 30))
-            setPadding(12.dpToPx(), 10.dpToPx(), 12.dpToPx(), 10.dpToPx())
+            includeFontPadding = false
+            setPadding(10.dpToPx(), 8.dpToPx(), 10.dpToPx(), 8.dpToPx())
             background = GradientDrawable().apply {
                 setColor(Color.rgb(250, 250, 250))
                 setStroke(1.dpToPx(), Color.rgb(80, 80, 80))
@@ -805,18 +812,18 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
         bookRow.addView(button("刷新", Color.rgb(96, 125, 139)).apply {
-            layoutParams = LinearLayout.LayoutParams(92.dpToPx(), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            layoutParams = LinearLayout.LayoutParams(70.dpToPx(), 34.dpToPx()).apply {
                 setMargins(4.dpToPx(), 0, 0, 0)
             }
         })
         bookRow.addView(button("搜索", Color.rgb(33, 150, 243)).apply {
-            layoutParams = LinearLayout.LayoutParams(92.dpToPx(), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            layoutParams = LinearLayout.LayoutParams(70.dpToPx(), 34.dpToPx()).apply {
                 setMargins(4.dpToPx(), 0, 0, 0)
             }
         })
         container.addView(bookRow)
 
-        addText("角色列表（已标记 ${snapshot.characters.size}）：", 16f, true)
+        addText("角色列表（${snapshot.characters.size}）", 15f, true)
         if (snapshot.characters.isEmpty()) {
             addText("当前书还没有角色记录。先点“分析规则”运行当前章，分析结果会自动写入这里。", 15f)
         } else {
@@ -824,18 +831,19 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 val selected = index == 0
                 val row = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    setPadding(12.dpToPx(), 10.dpToPx(), 8.dpToPx(), 10.dpToPx())
+                    setPadding(10.dpToPx(), 8.dpToPx(), 6.dpToPx(), 8.dpToPx())
                     background = GradientDrawable().apply {
-                        cornerRadius = 2.dpToPx().toFloat()
+                        cornerRadius = 4.dpToPx().toFloat()
                         setColor(if (selected) Color.rgb(255, 249, 190) else Color.TRANSPARENT)
                         if (!selected) setStroke(1.dpToPx(), Color.rgb(232, 232, 232))
                     }
                 }
                 row.addView(TextView(context).apply {
                     text = "${character.name}    【${character.voiceTag}-${character.gender}-${character.ageType}】"
-                    textSize = 16f
+                    textSize = 14f
                     setTextColor(if (selected) Color.rgb(210, 90, 30) else Color.rgb(35, 35, 35))
                     if (selected) typeface = Typeface.DEFAULT_BOLD
+                    includeFontPadding = false
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 row.addView(RadioButton(context).apply {
@@ -855,13 +863,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             listOf("固定发音人", "固定当前发音人", "固定性别年龄", "删除角色"),
             listOf(Color.rgb(156, 39, 176), Color.rgb(123, 31, 162), Color.rgb(103, 58, 183), Color.rgb(244, 67, 54))
         )
-        addText("语速：1.0", 18f, color = Color.rgb(45, 45, 45))
-        addText(
-            "已同步文件：${snapshot.files.joinToString("、").ifBlank { "等待首次分析写入" }}",
-            12f,
-            color = Color.rgb(110, 110, 110)
-        )
-        addText("目录：${snapshot.storagePath}", 12f, color = Color.rgb(130, 130, 130))
         return ScrollView(context).apply { addView(container) }
     }
 
