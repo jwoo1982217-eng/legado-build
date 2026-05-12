@@ -72,9 +72,9 @@ class AudiobookCacheGenerator(
             context.toastOnUi("当前书籍目录为空，无法查询有声书状态")
             return
         }
-        val safeStartIndex = ReadBook.durChapterIndex.coerceIn(0, chapterCount - 1)
+        val safeStartIndex = 0
         val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
-        val submitCount = (chapterCount - safeStartIndex).coerceAtMost(preloadCount + 1)
+        val submitCount = chapterCount
         val statusContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24.dpToPx(), 16.dpToPx(), 24.dpToPx(), 8.dpToPx())
@@ -157,11 +157,11 @@ class AudiobookCacheGenerator(
         val statusDesc = if (useTtsServer) {
             "完成判断：以 TTS 端实际缓存队列结果为准。"
         } else {
-            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。当前设置：整章合并=${if (AppConfig.audiobookAutoMergeAfterRead) "开" else "关"}，转为MP3=${if (AppConfig.audiobookConvertMergedToMp3) "开" else "关"}。"
+            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。当前设置：整章合并=${if (AppConfig.audiobookAutoMergeAfterRead) "开" else "关"}，完整章节音频统一保存为受保护加密 MP3，仅本 App 可播放。"
         }
 
         AlertDialog.Builder(context)
-            .setTitle("立即生成章节音频")
+            .setTitle("生成有声书缓存")
             .setMessage(
                 "书名：${book.name}\n" +
                         "起始章节：第 ${safeStartIndex + 1} 章 ${startTitle}\n" +
@@ -172,7 +172,7 @@ class AudiobookCacheGenerator(
                         "\n\n本次章节队列：\n" +
                         formatChapterQueue(previewChapters)
             )
-            .setPositiveButton("开始生成") { _, _ ->
+            .setPositiveButton("开始生成缓存") { _, _ ->
                 start(
                     book = book,
                     startIndex = safeStartIndex,
@@ -239,7 +239,10 @@ class AudiobookCacheGenerator(
                         "生成模式：开源阅读本地章节音频"
                     }
                 )
-                append("\n生成范围：当前章 + 后面 ")
+                append("\n查询范围：全书 ")
+                append(chapters.size)
+                append(" 章")
+                append("\n生成窗口：生成缓存默认提交当前章 + 后面 ")
                 append(preloadCount)
                 append(" 章")
                 append("\n查询对象：句子片段 + 完整章节音频")
@@ -655,7 +658,10 @@ class AudiobookCacheGenerator(
             append(" 章 ")
             append(chapter.title.ifBlank { "未命名章节" })
             append("\n状态：")
+            append(status.status.ifBlank { "unknown" })
+            append("（")
             append(status.status.toChapterState())
+            append("）")
             if (status.format.isNotBlank()) {
                 append("，格式：")
                 append(status.format.toChapterFormatName())

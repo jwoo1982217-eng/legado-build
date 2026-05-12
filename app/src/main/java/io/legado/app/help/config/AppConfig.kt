@@ -1006,7 +1006,7 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
         set(value) = appCtx.putPrefBoolean(PreferKey.audiobookAutoMergeAfterRead, value)
 
     var audiobookConvertMergedToMp3: Boolean
-        get() = appCtx.getPrefBoolean(PreferKey.audiobookConvertMergedToMp3, false)
+        get() = appCtx.getPrefBoolean(PreferKey.audiobookConvertMergedToMp3, true)
         set(value) = appCtx.putPrefBoolean(PreferKey.audiobookConvertMergedToMp3, value)
 
     var scriptBrainEnabled: Boolean

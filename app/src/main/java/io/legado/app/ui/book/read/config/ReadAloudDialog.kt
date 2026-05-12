@@ -159,7 +159,12 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAiBgm.isChecked = AiBgMusic.enabled
         cbAudioPreload.isChecked = AppConfig.audioPreloadEnabled && AppConfig.audioPreDownloadNum > 0
         cbAudiobookAutoMerge.isChecked = AppConfig.audiobookAutoMergeAfterRead
-        cbAudiobookConvertMp3.isChecked = AppConfig.audiobookConvertMergedToMp3
+        if (!AppConfig.audiobookConvertMergedToMp3) {
+            AppConfig.audiobookConvertMergedToMp3 = true
+        }
+        cbAudiobookConvertMp3.isChecked = true
+        cbAudiobookConvertMp3.isEnabled = false
+        cbAudiobookConvertMp3.alpha = 0.78f
         cbScriptBrainEnabled.isChecked = AppConfig.scriptBrainEnabled
         upScriptBrainToolsVisible(AppConfig.scriptBrainEnabled)
         upSpeakEngineSummary()
@@ -247,13 +252,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
         }
 
-        cbAudiobookConvertMp3.setOnCheckedChangeListener { _, isChecked ->
-            AppConfig.audiobookConvertMergedToMp3 = isChecked
-            if (isChecked) {
-                toastOnUi("已开启：完整章节音频统一转为 MP3")
-            } else {
-                toastOnUi("已关闭 MP3 转换，尽量保留原音频格式")
-            }
+        cbAudiobookConvertMp3.setOnCheckedChangeListener { _, _ ->
+            AppConfig.audiobookConvertMergedToMp3 = true
+            cbAudiobookConvertMp3.isChecked = true
+            toastOnUi("完整章节音频固定保存为受保护加密 MP3")
         }
 
         btnAudiobookGenerate.setOnClickListener {

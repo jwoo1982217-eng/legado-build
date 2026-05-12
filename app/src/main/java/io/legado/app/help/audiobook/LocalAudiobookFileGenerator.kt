@@ -753,37 +753,20 @@ object LocalAudiobookFileGenerator {
         val outDir = chapterDir(context, bookName, chapter)
         val baseName = chapterFileBaseName(chapter)
         val bytesList = audioSegments.map { it.bytes }
-
-        return if (AppConfig.audiobookConvertMergedToMp3) {
-            val outFile = chapterOutputFile(outDir, "mp3")
+        val tempMp3 = chapterTempMp3File(File(outDir, "chapter.mp3"), baseName)
+        try {
             when {
-                bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, outFile)
-                bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, outFile, baseName)
-                else -> encodeSegmentFilesToMp3(audioSegments, outFile, baseName)
+                bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, tempMp3)
+                bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, tempMp3, baseName)
+                else -> encodeSegmentFilesToMp3(audioSegments, tempMp3, baseName)
             }
-            outFile
-        } else {
-            when {
-                bytesList.all { it.looksLikeMp3() } -> {
-                    val outFile = chapterOutputFile(outDir, "mp3")
-                    writeConcatenatedMp3(bytesList, outFile)
-                    outFile
-                }
-
-                bytesList.all { it.looksLikeWav() } -> {
-                    val outFile = chapterOutputFile(outDir, "wav")
-                    writeMergedWav(bytesList, outFile)
-                    outFile
-                }
-
-                else -> {
-                    val outFile = chapterOutputFile(outDir, "mp3")
-                    encodeSegmentFilesToMp3(audioSegments, outFile, baseName)
-                    outFile
-                }
+            if (tempMp3.length() <= 0) error("章节 MP3 文件为空")
+            val outFile = chapterOutputFile(outDir, ProtectedAudiobookFile.EXTENSION)
+            return ProtectedAudiobookFile.protectMp3(context, tempMp3, outFile).also { file ->
+                if (file.length() <= 0) error("受保护章节音频文件为空")
             }
-        }.also { file ->
-            if (file.length() <= 0) error("章节音频文件为空")
+        } finally {
+            tempMp3.delete()
         }
     }
 
@@ -1139,7 +1122,8 @@ object LocalAudiobookFileGenerator {
             .put("engine", engineName)
             .put("status", status)
             .put("mergeChapterAudio", AppConfig.audiobookAutoMergeAfterRead)
-            .put("convertMergedToMp3", AppConfig.audiobookConvertMergedToMp3)
+            .put("convertMergedToMp3", true)
+            .put("protectedChapterAudio", file?.chapterAudioFormat() == ProtectedAudiobookFile.FORMAT)
             .put("path", file?.absolutePath.orEmpty())
             .put("format", file?.chapterAudioFormat().orEmpty())
             .put("sizeBytes", file?.length() ?: 0L)
