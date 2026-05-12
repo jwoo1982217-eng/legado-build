@@ -43,6 +43,7 @@ import kotlin.coroutines.resumeWithException
 object LocalAudiobookFileGenerator {
 
     private const val MP3_BITRATE = "96k"
+    private const val PROTECT_MERGED_CHAPTER_AUDIO = true
 
     data class Progress(
         val status: String,
@@ -653,6 +654,24 @@ object LocalAudiobookFileGenerator {
         val baseName = chapterFileBaseName(chapter)
         val bytesList = audioSegments.map { it.bytes }
 
+        if (PROTECT_MERGED_CHAPTER_AUDIO) {
+            val outFile = chapterOutputFile(outDir, ProtectedAudiobookFile.EXTENSION)
+            val tempMp3 = chapterTempMp3File(outFile, baseName)
+            try {
+                when {
+                    bytesList.all { it.looksLikeMp3() } -> writeConcatenatedMp3(bytesList, tempMp3)
+                    bytesList.all { it.looksLikeWav() } -> encodeWavSegmentsToMp3(bytesList, tempMp3, baseName)
+                    else -> encodeSegmentFilesToMp3(audioSegments, tempMp3, baseName)
+                }
+                if (tempMp3.length() <= 0) error("章节 MP3 文件为空")
+                ProtectedAudiobookFile.protectMp3(context, tempMp3, outFile)
+                if (outFile.length() <= 0) error("受保护章节音频文件为空")
+                return outFile
+            } finally {
+                tempMp3.delete()
+            }
+        }
+
         return if (AppConfig.audiobookConvertMergedToMp3) {
             val outFile = chapterOutputFile(outDir, "mp3")
             when {
@@ -1039,6 +1058,7 @@ object LocalAudiobookFileGenerator {
             .put("status", status)
             .put("mergeChapterAudio", AppConfig.audiobookAutoMergeAfterRead)
             .put("convertMergedToMp3", AppConfig.audiobookConvertMergedToMp3)
+            .put("protectedChapterAudio", PROTECT_MERGED_CHAPTER_AUDIO)
             .put("path", file?.absolutePath.orEmpty())
             .put("format", file?.chapterAudioFormat().orEmpty())
             .put("sizeBytes", file?.length() ?: 0L)

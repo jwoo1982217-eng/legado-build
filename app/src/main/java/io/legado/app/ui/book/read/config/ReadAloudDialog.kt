@@ -52,6 +52,13 @@ import kotlinx.coroutines.withContext
 
 class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud),
     SpeakEngineDialog.CallBack {
+    private companion object {
+        /**
+         * 普通用户开放版隐藏阅读端大脑/有声书分析模块，保留常规朗读和音频缓存能力。
+         */
+        private const val PUBLIC_OPEN_EDITION = true
+    }
+
     private data class ScriptModelPreset(
         val provider: String,
         val label: String,
@@ -160,8 +167,21 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAudioPreload.isChecked = AppConfig.audioPreloadEnabled && AppConfig.audioPreDownloadNum > 0
         cbAudiobookAutoMerge.isChecked = AppConfig.audiobookAutoMergeAfterRead
         cbAudiobookConvertMp3.isChecked = AppConfig.audiobookConvertMergedToMp3
-        cbScriptBrainEnabled.isChecked = AppConfig.scriptBrainEnabled
-        upScriptBrainToolsVisible(AppConfig.scriptBrainEnabled)
+        if (PUBLIC_OPEN_EDITION) {
+            cbAudiobookConvertMp3.text = "受保护MP3"
+            cbAudiobookConvertMp3.isChecked = true
+            cbAudiobookConvertMp3.isEnabled = false
+            AppConfig.audiobookConvertMergedToMp3 = true
+        }
+        if (PUBLIC_OPEN_EDITION) {
+            AppConfig.scriptBrainEnabled = false
+            cbScriptBrainEnabled.isChecked = false
+            cbScriptBrainEnabled.gone()
+            upScriptBrainToolsVisible(false)
+        } else {
+            cbScriptBrainEnabled.isChecked = AppConfig.scriptBrainEnabled
+            upScriptBrainToolsVisible(AppConfig.scriptBrainEnabled)
+        }
         upSpeakEngineSummary()
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
         upSeekTimer()
@@ -182,6 +202,12 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             showAiBgMusicPlaybackConfig()
         }
         cbScriptBrainEnabled.setOnCheckedChangeListener { _, isChecked ->
+            if (PUBLIC_OPEN_EDITION) {
+                AppConfig.scriptBrainEnabled = false
+                cbScriptBrainEnabled.isChecked = false
+                upScriptBrainToolsVisible(false)
+                return@setOnCheckedChangeListener
+            }
             AppConfig.scriptBrainEnabled = isChecked
             upScriptBrainToolsVisible(isChecked)
             if (isChecked) {
@@ -239,13 +265,19 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAudiobookAutoMerge.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.audiobookAutoMergeAfterRead = isChecked
             if (isChecked) {
-                toastOnUi("整章合并已开启，读完章节后会合并完整音频")
+                toastOnUi("整章合并已开启，完整章节音频会加密保存")
             } else {
                 toastOnUi("整章合并已关闭，只保留句子片段")
             }
         }
 
         cbAudiobookConvertMp3.setOnCheckedChangeListener { _, isChecked ->
+            if (PUBLIC_OPEN_EDITION) {
+                AppConfig.audiobookConvertMergedToMp3 = true
+                cbAudiobookConvertMp3.isChecked = true
+                toastOnUi("开放版固定生成受保护 MP3")
+                return@setOnCheckedChangeListener
+            }
             AppConfig.audiobookConvertMergedToMp3 = isChecked
             if (isChecked) {
                 toastOnUi("已开启：完整章节音频统一转为 MP3")
@@ -342,6 +374,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun upScriptBrainToolsVisible(enabled: Boolean) {
+        if (PUBLIC_OPEN_EDITION) {
+            binding.layoutScriptBrainTools.gone()
+            return
+        }
         if (enabled) {
             binding.layoutScriptBrainTools.visible()
         } else {

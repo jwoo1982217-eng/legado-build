@@ -142,7 +142,7 @@ class AudiobookCacheGenerator(
         val statusDesc = if (useTtsServer) {
             "完成判断：以 TTS 端实际缓存队列结果为准。"
         } else {
-            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。当前设置：整章合并=${if (AppConfig.audiobookAutoMergeAfterRead) "开" else "关"}，转为MP3=${if (AppConfig.audiobookConvertMergedToMp3) "开" else "关"}。"
+            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。当前设置：整章合并=${if (AppConfig.audiobookAutoMergeAfterRead) "开" else "关"}，输出=受保护MP3。"
         }
 
         AlertDialog.Builder(context)
