@@ -939,25 +939,208 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun showScriptRules() {
-        val imported = ScriptBrain.hasImportedRule(requireContext())
-        val items = mutableListOf(
-            if (imported) "粘贴/替换朗读规则" else "粘贴导入朗读规则",
-            "从文件导入完整朗读规则 JSON",
-            "规则库/选择规则",
-            "运行当前章",
-            "查看已导入规则",
-            "清空已导入规则",
-            "说明"
+        val context = requireContext()
+        val modules = ScriptBrain.analysisModules(context)
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(6.dpToPx(), 8.dpToPx(), 6.dpToPx(), 8.dpToPx())
+        }
+        var dialog: AlertDialog? = null
+
+        fun addText(text: String, size: Float = 14f, bold: Boolean = false) {
+            container.addView(TextView(context).apply {
+                this.text = text
+                textSize = size
+                if (bold) typeface = Typeface.DEFAULT_BOLD
+                setPadding(4.dpToPx(), 5.dpToPx(), 4.dpToPx(), 5.dpToPx())
+            })
+        }
+
+        fun Button.compact(label: String, onClick: () -> Unit): Button {
+            text = label
+            textSize = 12f
+            minHeight = 0
+            minWidth = 0
+            setPadding(4.dpToPx(), 0, 4.dpToPx(), 0)
+            setOnClickListener { onClick() }
+            return this
+        }
+
+        fun addButtonRow(vararg buttons: Button) {
+            container.addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 4.dpToPx(), 0, 4.dpToPx())
+                buttons.forEach { button ->
+                    addView(button, LinearLayout.LayoutParams(0, 38.dpToPx(), 1f).apply {
+                        marginEnd = 4.dpToPx()
+                    })
+                }
+            })
+        }
+
+        addText("当前规则：默认多角色分析规则", 15f, true)
+        addButtonRow(
+            Button(context).compact("运行当前章") {
+                dialog?.dismiss()
+                runScriptRuleForCurrentChapter()
+            },
+            Button(context).compact("导入规则") {
+                dialog?.dismiss()
+                importSpeechRuleJson.launch(arrayOf("application/json", "text/*", "*/*"))
+            },
+            Button(context).compact("导出规则") {
+                showTextDialog("导出分析规则 JSON", ScriptBrain.exportAnalysisRulePackage(context))
+            },
         )
-        context?.selector("分析规则", items) { _, index ->
-            when (index) {
-                0 -> showPasteScriptRuleDialog()
-                1 -> importSpeechRuleJson.launch(arrayOf("application/json", "text/*", "*/*"))
-                2 -> showScriptRuleLibrary()
-                3 -> runScriptRuleForCurrentChapter()
-                4 -> showImportedScriptRule()
-                5 -> clearImportedScriptRule()
-                6 -> showScriptRuleHelp()
+        addButtonRow(
+            Button(context).compact("添加模块") {
+                dialog?.dismiss()
+                showEditAnalysisModule(null)
+            },
+            Button(context).compact("规则库") {
+                showScriptRuleLibrary()
+            },
+            Button(context).compact("说明") {
+                showScriptRuleHelp()
+            },
+        )
+
+        addText("模块列表：", 15f, true)
+        modules.forEachIndexed { index, module ->
+            addText(
+                "${if (module.enabled) "[开]" else "[关]"} ${(index + 1).toString().padStart(2, '0')} ${module.name}",
+                14f,
+                true
+            )
+            addButtonRow(
+                Button(context).compact(if (module.enabled) "关闭" else "开启") {
+                    ScriptBrain.setAnalysisModuleEnabled(context, module.id, !module.enabled)
+                    dialog?.dismiss()
+                    showScriptRules()
+                },
+                Button(context).compact("编辑") {
+                    dialog?.dismiss()
+                    showEditAnalysisModule(module)
+                },
+                Button(context).compact("上移") {
+                    ScriptBrain.moveAnalysisModule(context, module.id, -1)
+                    dialog?.dismiss()
+                    showScriptRules()
+                },
+                Button(context).compact("下移") {
+                    ScriptBrain.moveAnalysisModule(context, module.id, 1)
+                    dialog?.dismiss()
+                    showScriptRules()
+                },
+                Button(context).compact("测试") {
+                    dialog?.dismiss()
+                    testAnalysisModule(module)
+                },
+                Button(context).compact("删除") {
+                    ScriptBrain.deleteAnalysisModule(context, module.id)
+                    dialog?.dismiss()
+                    showScriptRules()
+                },
+            )
+        }
+
+        if (ScriptBrain.hasImportedRule(context)) {
+            addText("旧 TTS 规则兼容：旧规则可能和阅读端分析不完全匹配，建议只用于对照测试。", 13f)
+            addButtonRow(
+                Button(context).compact("运行旧规则") {
+                    dialog?.dismiss()
+                    runImportedSpeechRuleForCurrentChapter()
+                },
+                Button(context).compact("查看旧规则") {
+                    showImportedScriptRule()
+                },
+                Button(context).compact("清空旧规则") {
+                    clearImportedScriptRule()
+                },
+            )
+        }
+
+        dialog = AlertDialog.Builder(context)
+            .setTitle("分析中心")
+            .setView(ScrollView(context).apply { addView(container) })
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+        dialog?.show()
+    }
+
+    private fun showEditAnalysisModule(module: ScriptBrain.AnalysisModule?) {
+        val context = requireContext()
+        val nameEdit = EditText(context).apply {
+            setText(module?.name.orEmpty())
+            hint = "模块名称，例如：说话人归属"
+            setSingleLine(true)
+        }
+        val codeEdit = EditText(context).apply {
+            setText(module?.code.orEmpty())
+            hint = "模块 JS，可先写规则说明；后续会按统一 ctx 执行"
+            minLines = 8
+            maxLines = 16
+            inputType = InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                    InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            setHorizontallyScrolling(false)
+        }
+        val view = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dpToPx(), 10.dpToPx(), 16.dpToPx(), 10.dpToPx())
+            addView(nameEdit)
+            addView(codeEdit)
+        }
+        AlertDialog.Builder(context)
+            .setTitle(if (module == null) "添加分析模块" else "编辑模块：${module.name}")
+            .setView(ScrollView(context).apply { addView(view) })
+            .setPositiveButton("保存") { _, _ ->
+                val name = nameEdit.text?.toString().orEmpty().trim()
+                if (name.isBlank()) {
+                    toastOnUi("模块名称不能为空")
+                    return@setPositiveButton
+                }
+                ScriptBrain.upsertAnalysisModule(
+                    context,
+                    ScriptBrain.AnalysisModule(
+                        id = module?.id ?: "module_${System.currentTimeMillis()}",
+                        name = name,
+                        type = module?.type ?: "js",
+                        enabled = module?.enabled ?: true,
+                        code = codeEdit.text?.toString().orEmpty(),
+                    )
+                )
+                toastOnUi("模块已保存")
+                showScriptRules()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun testAnalysisModule(module: ScriptBrain.AnalysisModule) {
+        val appContext = requireContext().applicationContext
+        toastOnUi("正在测试模块：${module.name}")
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ScriptBrain.runAnalysisModulesForCurrentChapter(appContext) }
+            }
+            if (!isAdded) return@launch
+            result.onSuccess { runResult ->
+                showTextDialog(
+                    "模块测试：${module.name}",
+                    buildString {
+                        appendLine("已运行当前章模块流程。")
+                        appendLine("台词：${runResult.analysis.lines.size} 行")
+                        appendLine("角色：${runResult.analysis.characters.size} 个")
+                        appendLine()
+                        appendLine("结果已写入角色表和台词本。")
+                        appendLine()
+                        appendLine("日志：")
+                        runResult.logs.forEach { appendLine(it) }
+                    }
+                )
+            }.onFailure {
+                showTextDialog("模块测试失败：${module.name}", it.localizedMessage ?: it.stackTraceToString())
             }
         }
     }
@@ -1021,43 +1204,66 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun runScriptRuleForCurrentChapter() {
+        val appContext = requireContext().applicationContext
+        toastOnUi("正在运行内置分析模块...")
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ScriptBrain.runAnalysisModulesForCurrentChapter(appContext) }
+            }
+            if (!isAdded) return@launch
+            result.onSuccess { runResult ->
+                showTextDialog("内置分析运行结果", formatRuleRunResult(runResult, "结果已写入角色表和台词本。"))
+            }.onFailure {
+                showTextDialog(
+                    "内置分析运行失败",
+                    it.localizedMessage ?: it.stackTraceToString()
+                )
+            }
+        }
+    }
+
+    private fun runImportedSpeechRuleForCurrentChapter() {
         if (!ScriptBrain.hasImportedRule(requireContext())) {
-            toastOnUi("请先导入朗读规则")
+            toastOnUi("请先导入旧 TTS 朗读规则")
             return
         }
         val appContext = requireContext().applicationContext
-        toastOnUi("正在运行朗读规则...")
+        toastOnUi("正在运行旧 TTS 朗读规则...")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching { ScriptBrain.runImportedRuleForCurrentChapter(appContext) }
             }
             if (!isAdded) return@launch
             result.onSuccess { runResult ->
-                val analysis = runResult.analysis
-                val body = buildString {
-                    appendLine("${analysis.chapterTitle}")
-                    appendLine("运行完成：${analysis.lines.size} 行台词，${analysis.characters.size} 个角色")
-                    appendLine()
-                    analysis.lines.take(120).forEach { line ->
-                        appendLine("${line.index.toString().padStart(2, '0')}  ${line.roleName}  ${line.voiceTag}")
-                        appendLine("    ${line.text.take(120)}")
-                    }
-                    if (runResult.logs.isNotEmpty()) {
-                        appendLine()
-                        appendLine("日志：")
-                        runResult.logs.takeLast(30).forEach { appendLine(it) }
-                    }
-                    if (analysis.lines.size > 120) {
-                        appendLine()
-                        appendLine("已显示前 120 行，完整结果已保存。")
-                    }
-                }
-                showTextDialog("朗读规则运行结果", body)
+                showTextDialog("旧规则运行结果", formatRuleRunResult(runResult, "旧规则结果已保存，可用于对照。"))
             }.onFailure {
                 showTextDialog(
-                    "朗读规则运行失败",
+                    "旧规则运行失败",
                     it.localizedMessage ?: it.stackTraceToString()
                 )
+            }
+        }
+    }
+
+    private fun formatRuleRunResult(runResult: ScriptBrain.RuleRunResult, note: String): String {
+        val analysis = runResult.analysis
+        return buildString {
+            appendLine("${analysis.chapterTitle}")
+            appendLine("运行完成：${analysis.lines.size} 行台词，${analysis.characters.size} 个角色")
+            appendLine(note)
+            appendLine()
+            analysis.lines.take(120).forEach { line ->
+                appendLine("${line.index.toString().padStart(2, '0')}  ${line.roleName}  ${line.voiceTag}")
+                appendLine("    ${line.text.take(120)}")
+            }
+            if (runResult.logs.isNotEmpty()) {
+                appendLine()
+                appendLine("日志：")
+                runResult.logs.takeLast(30).forEach { appendLine(it) }
+            }
+            if (analysis.lines.size > 120) {
+                appendLine()
+                appendLine("已显示前 120 行，完整结果已保存。")
             }
         }
     }

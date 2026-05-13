@@ -97,38 +97,45 @@ object ScriptBrain {
         val modelKey: String = "",
     )
 
+    data class AnalysisModule(
+        val id: String,
+        val name: String,
+        val type: String = "js",
+        val enabled: Boolean = true,
+        val code: String = "",
+    )
+
     fun analyzeCurrentChapter(context: Context): Analysis {
-        val chapterPayload = currentChapterPayload()
-        val importedRule = loadImportedRule(context)
-        if (importedRule.isNotBlank()) {
-            runCatching {
-                return runImportedRule(
-                    context = context.applicationContext,
-                    payload = chapterPayload,
-                    ruleText = importedRule,
-                ).analysis
-            }.onFailure { error ->
-                val analysis = analyze(
-                    chapterPayload.bookName,
-                    chapterPayload.chapterIndex,
-                    chapterPayload.chapterTitle,
-                    chapterPayload.chapterText,
-                ).copy(
-                    source = "本地规则兜底",
-                    error = "导入朗读规则运行失败：${error.localizedMessage ?: error.javaClass.simpleName}"
-                )
-                save(context.applicationContext, analysis)
-                return analysis
+        return runAnalysisModulesForCurrentChapter(context.applicationContext).analysis
+    }
+
+    fun runAnalysisModulesForCurrentChapter(context: Context): RuleRunResult {
+        val appContext = context.applicationContext
+        val payload = currentChapterPayload()
+        val modules = analysisModules(appContext)
+        val enabledModules = modules.filter { it.enabled }
+        val logs = buildList {
+            add("分析中心：${payload.chapterTitle}")
+            add("整章正文：${payload.chapterText.length} 字")
+            modules.forEachIndexed { index, module ->
+                add("${(index + 1).toString().padStart(2, '0')} ${if (module.enabled) "运行" else "跳过"}：${module.name}")
             }
         }
         val analysis = analyze(
-            chapterPayload.bookName,
-            chapterPayload.chapterIndex,
-            chapterPayload.chapterTitle,
-            chapterPayload.chapterText,
+            payload.bookName,
+            payload.chapterIndex,
+            payload.chapterTitle,
+            payload.chapterText,
+        ).copy(
+            source = "内置分析模块",
+            error = if (enabledModules.isEmpty()) "没有启用的分析模块，已用本地基础规则生成台词本。" else "",
         )
-        save(context.applicationContext, analysis)
-        return analysis
+        save(appContext, analysis)
+        val dir = scriptDir(appContext, analysis.bookName).apply { mkdirs() }
+        val rawQueueJson = analysis.toQueueJson().toString(2)
+        File(dir, "last_audio_queue.json").writeText(rawQueueJson, Charsets.UTF_8)
+        File(dir, "last_module_log.txt").writeText(logs.joinToString("\n"), Charsets.UTF_8)
+        return RuleRunResult(analysis, rawQueueJson, logs)
     }
 
     fun runImportedRuleForCurrentChapter(context: Context): RuleRunResult {
@@ -143,14 +150,20 @@ object ScriptBrain {
 
     fun saveImportedRule(context: Context, raw: String, alsoSaveToLibrary: Boolean = true) {
         val normalized = normalizeImportedRule(raw)
+        parseAnalysisModules(normalized).takeIf { it.isNotEmpty() }?.let {
+            saveAnalysisModules(context.applicationContext, it)
+        }
         val code = extractRuleCode(normalized)
-        require(code.isNotBlank()) { "朗读规则为空" }
         globalDir(context.applicationContext).mkdirs()
-        importedRuleFile(context.applicationContext).writeText(code, Charsets.UTF_8)
         importedRuleJsonFile(context.applicationContext).writeText(normalized, Charsets.UTF_8)
         if (alsoSaveToLibrary) {
             saveRuleToLibrary(context.applicationContext, normalized)
         }
+        if (code.isBlank()) {
+            importedRuleFile(context.applicationContext).delete()
+            return
+        }
+        importedRuleFile(context.applicationContext).writeText(code, Charsets.UTF_8)
     }
 
     fun loadImportedRule(context: Context): String {
@@ -195,6 +208,69 @@ object ScriptBrain {
         val file = File(ruleLibraryDir(context.applicationContext), "${id.safeFileName()}.json")
         require(file.exists()) { "规则不存在" }
         saveImportedRule(context.applicationContext, file.readText(Charsets.UTF_8), alsoSaveToLibrary = false)
+    }
+
+    fun analysisModules(context: Context): List<AnalysisModule> {
+        val raw = context.applicationContext.getPrefString(KEY_ANALYSIS_MODULES).orEmpty()
+        return parseAnalysisModules(raw).ifEmpty { defaultAnalysisModules() }
+    }
+
+    fun saveAnalysisModules(context: Context, modules: List<AnalysisModule>) {
+        val array = JSONArray().also { target ->
+            modules.forEach { target.put(it.toJson()) }
+        }
+        context.applicationContext.putPrefString(KEY_ANALYSIS_MODULES, array.toString())
+    }
+
+    fun setAnalysisModuleEnabled(context: Context, id: String, enabled: Boolean) {
+        saveAnalysisModules(
+            context.applicationContext,
+            analysisModules(context.applicationContext).map {
+                if (it.id == id) it.copy(enabled = enabled) else it
+            }
+        )
+    }
+
+    fun upsertAnalysisModule(context: Context, module: AnalysisModule) {
+        val modules = analysisModules(context.applicationContext).toMutableList()
+        val index = modules.indexOfFirst { it.id == module.id }
+        if (index >= 0) {
+            modules[index] = module
+        } else {
+            modules.add(module)
+        }
+        saveAnalysisModules(context.applicationContext, modules)
+    }
+
+    fun deleteAnalysisModule(context: Context, id: String) {
+        saveAnalysisModules(
+            context.applicationContext,
+            analysisModules(context.applicationContext).filterNot { it.id == id }
+        )
+    }
+
+    fun moveAnalysisModule(context: Context, id: String, delta: Int) {
+        val modules = analysisModules(context.applicationContext).toMutableList()
+        val index = modules.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val target = (index + delta).coerceIn(0, modules.lastIndex)
+        if (target == index) return
+        val item = modules.removeAt(index)
+        modules.add(target, item)
+        saveAnalysisModules(context.applicationContext, modules)
+    }
+
+    fun exportAnalysisRulePackage(context: Context): String {
+        val info = importedRuleInfo(context.applicationContext)
+        val rawRule = loadImportedRuleRaw(context.applicationContext)
+        return JSONObject()
+            .put("name", info?.name ?: "默认多角色分析规则")
+            .put("type", "script_brain_module_rule")
+            .put("version", info?.version ?: "1")
+            .put("author", info?.author ?: "阅读端内置")
+            .put("modules", analysisModules(context.applicationContext).toJsonArray())
+            .put("speechRule", rawRule.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+            .toString(2)
     }
 
     fun modelProfiles(context: Context): List<AnalysisModelProfile> {
@@ -1149,6 +1225,131 @@ object ScriptBrain {
         File(dir, "$id.json").writeText(normalized, Charsets.UTF_8)
     }
 
+    private fun defaultAnalysisModules(): List<AnalysisModule> {
+        return listOf(
+            AnalysisModule(
+                id = "text_preprocess",
+                name = "文本预处理",
+                code = "// 整理章节段落、换行和空白，必须保留原文。"
+            ),
+            AnalysisModule(
+                id = "dialogue_split",
+                name = "对话切分",
+                code = "// 识别旁白、引号对话、半句对话。"
+            ),
+            AnalysisModule(
+                id = "speaker_resolve",
+                name = "说话人归属",
+                code = "// 根据上下文判断每句对话属于哪个角色。"
+            ),
+            AnalysisModule(
+                id = "alias_merge",
+                name = "角色别名合并",
+                code = "// 合并角色名、称呼、代词和别名。"
+            ),
+            AnalysisModule(
+                id = "voice_tag",
+                name = "音色标签分配",
+                code = "// 为角色分配男/男青年01、女/女青年01等唯一音色标签。"
+            ),
+            AnalysisModule(
+                id = "emotion",
+                name = "情绪分析",
+                code = "// 为台词标注平静、紧张、愤怒、哽咽等情绪。"
+            ),
+            AnalysisModule(
+                id = "validate",
+                name = "结果校验",
+                code = "// 检查未知角色、空台词、音色复用和异常归属。"
+            ),
+        )
+    }
+
+    private fun parseAnalysisModules(raw: String): List<AnalysisModule> {
+        val text = raw.trim()
+        if (text.isBlank()) return emptyList()
+        val array = runCatching {
+            if (text.startsWith("[")) {
+                JSONArray(text)
+            } else {
+                val obj = JSONObject(text)
+                obj.optJSONArray("modules")
+                    ?: obj.optJSONArray("analysisModules")
+                    ?: obj.optJSONArray("pipeline")
+                    ?: JSONArray()
+            }
+        }.getOrNull() ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val name = firstText(item, "name", "title", "label").ifBlank { "模块 ${index + 1}" }
+                val id = firstText(item, "id", "key").ifBlank { "${name}_${index}".safeFileName() }
+                add(
+                    AnalysisModule(
+                        id = id,
+                        name = name,
+                        type = firstText(item, "type").ifBlank { "js" },
+                        enabled = item.optBoolean("enabled", true),
+                        code = firstText(item, "code", "js", "script", "content", "source"),
+                    )
+                )
+            }
+        }
+    }
+
+    private fun AnalysisModule.toJson(): JSONObject {
+        return JSONObject()
+            .put("id", id)
+            .put("name", name)
+            .put("type", type)
+            .put("enabled", enabled)
+            .put("code", code)
+    }
+
+    private fun List<AnalysisModule>.toJsonArray(): JSONArray {
+        return JSONArray().also { array ->
+            forEach { array.put(it.toJson()) }
+        }
+    }
+
+    private fun Analysis.toQueueJson(): JSONObject {
+        return JSONObject()
+            .put("bookName", bookName)
+            .put("chapterIndex", chapterIndex)
+            .put("chapterTitle", chapterTitle)
+            .put("source", source)
+            .put(
+                "characters",
+                JSONArray().also { array ->
+                    characters.forEach { character ->
+                        array.put(
+                            JSONObject()
+                                .put("name", character.name)
+                                .put("gender", character.gender)
+                                .put("ageType", character.ageType)
+                                .put("voiceTag", character.voiceTag)
+                        )
+                    }
+                }
+            )
+            .put(
+                "audioQueue",
+                JSONArray().also { array ->
+                    lines.forEach { line ->
+                        array.put(
+                            JSONObject()
+                                .put("index", line.index)
+                                .put("text", line.text)
+                                .put("roleName", line.roleName)
+                                .put("voiceTag", line.voiceTag)
+                                .put("tag", if (line.isNarration) "narration" else line.roleName)
+                                .put("isNarration", line.isNarration)
+                        )
+                    }
+                }
+            )
+    }
+
     private fun extractRuleCode(raw: String): String {
         val text = raw.trim()
         if (!text.startsWith("{")) return text
@@ -1200,6 +1401,7 @@ object ScriptBrain {
     private const val KEY_MODEL_PROFILES = "script_brain_model_profiles"
     private const val KEY_SELECTED_MODEL_PROFILE = "script_brain_selected_model_profile"
     private const val KEY_SELECTED_MODEL_PROFILES = "script_brain_selected_model_profiles"
+    private const val KEY_ANALYSIS_MODULES = "script_brain_analysis_modules"
 
     private fun String.safeFileName(): String {
         return replace(Regex("[\\\\/:*?\"<>|\\r\\n]+"), "_").take(80).ifBlank { "未命名" }
