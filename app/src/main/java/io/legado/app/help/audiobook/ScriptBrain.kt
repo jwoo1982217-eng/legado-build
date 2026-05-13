@@ -114,28 +114,41 @@ object ScriptBrain {
         val payload = currentChapterPayload()
         val modules = analysisModules(appContext)
         val enabledModules = modules.filter { it.enabled }
-        val logs = buildList {
-            add("分析中心：${payload.chapterTitle}")
-            add("整章正文：${payload.chapterText.length} 字")
-            modules.forEachIndexed { index, module ->
-                add("${(index + 1).toString().padStart(2, '0')} ${if (module.enabled) "运行" else "跳过"}：${module.name}")
+        val dir = scriptDir(appContext, payload.bookName).apply { mkdirs() }
+        val existingCharacters = readRoleManagerCharacters(dir)
+        val logs = arrayListOf(
+            "分析中心：${payload.chapterTitle}",
+            "整章正文：${payload.chapterText.length} 字"
+        )
+        var ctx = moduleContext(payload, existingCharacters)
+        modules.forEachIndexed { index, module ->
+            val prefix = (index + 1).toString().padStart(2, '0')
+            if (!module.enabled) {
+                logs.add("$prefix 跳过：${module.name}")
+                return@forEachIndexed
+            }
+            logs.add("$prefix 运行：${module.name}")
+            runCatching {
+                ctx = runAnalysisModule(module, ctx, logs)
+            }.onFailure { error ->
+                logs.add("$prefix 失败：${module.name} - ${error.localizedMessage ?: error.javaClass.simpleName}")
             }
         }
-        val analysis = analyze(
-            payload.bookName,
-            payload.chapterIndex,
-            payload.chapterTitle,
-            payload.chapterText,
+        val ctxLogs = ctx.optJSONArray("logs").toStringList()
+        val analysis = analysisFromModuleContext(
+            payload = payload,
+            ctx = ctx,
+            existingCharacters = existingCharacters,
         ).copy(
             source = "内置分析模块",
             error = if (enabledModules.isEmpty()) "没有启用的分析模块，已用本地基础规则生成台词本。" else "",
         )
         save(appContext, analysis)
-        val dir = scriptDir(appContext, analysis.bookName).apply { mkdirs() }
         val rawQueueJson = analysis.toQueueJson().toString(2)
         File(dir, "last_audio_queue.json").writeText(rawQueueJson, Charsets.UTF_8)
-        File(dir, "last_module_log.txt").writeText(logs.joinToString("\n"), Charsets.UTF_8)
-        return RuleRunResult(analysis, rawQueueJson, logs)
+        val finalLogs = (logs + ctxLogs).distinct()
+        File(dir, "last_module_log.txt").writeText(finalLogs.joinToString("\n"), Charsets.UTF_8)
+        return RuleRunResult(analysis, rawQueueJson, finalLogs)
     }
 
     fun runImportedRuleForCurrentChapter(context: Context): RuleRunResult {
@@ -276,6 +289,7 @@ object ScriptBrain {
     fun defaultModuleCode(id: String, name: String): String {
         val purpose = when (id) {
             "text_preprocess" -> "整理章节段落、换行和空白，必须保留原文。"
+            "ad_clean_regex" -> "用本地正则清理疑似广告、下载提示和推广段落。"
             "dialogue_split" -> "识别旁白、引号对话、半句对话。"
             "speaker_resolve" -> "根据上下文判断每句对话属于哪个角色。"
             "alias_merge" -> "合并角色名、称呼、代词和别名。"
@@ -283,6 +297,191 @@ object ScriptBrain {
             "emotion" -> "为台词标注平静、紧张、愤怒、哽咽等情绪。"
             "validate" -> "检查未知角色、空台词、音色复用和异常归属。"
             else -> "处理台词本或角色表，返回更新后的 ctx。"
+        }
+        when (id) {
+            "text_preprocess" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  ctx.chapterText = String(ctx.chapterText || "")
+                    .replace(/\r\n/g, "\n")
+                    .replace(/[ \t]+\n/g, "\n")
+                    .replace(/\n{3,}/g, "\n\n")
+                    .trim();
+                  ctx.logs.push("文本预处理完成：" + ctx.chapterText.length + " 字");
+                  return ctx;
+                }
+            """.trimIndent()
+
+            "ad_clean_regex" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  var text = String(ctx.chapterText || "");
+                  var before = text.length;
+                  var rules = [
+                    /请收藏本站.*$/gm,
+                    /最新网址.*$/gm,
+                    /本章未完.*$/gm,
+                    /喜欢本书请.*$/gm,
+                    /手机用户请.*$/gm,
+                    /app下载.*$/gm,
+                    /加入书签.*$/gm,
+                    /推荐票.*月票.*$/gm,
+                    /.*访问.*最新地址.*$/gm
+                  ];
+                  for (var i = 0; i < rules.length; i++) {
+                    text = text.replace(rules[i], "");
+                  }
+                  ctx.chapterText = text.replace(/\n{3,}/g, "\n\n").trim();
+                  ctx.logs.push("本地正则清理完成：移除约 " + Math.max(0, before - ctx.chapterText.length) + " 字");
+                  return ctx;
+                }
+            """.trimIndent()
+
+            "dialogue_split" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  var text = String(ctx.chapterText || "");
+                  var paragraphs = text.split(/\n+/).map(function(p) { return p.trim(); }).filter(Boolean);
+                  var lines = [];
+                  function speakerFrom(text) {
+                    var m = String(text || "").match(/([\u4e00-\u9fa5A-Za-z0-9·]{1,12})(?:轻声|低声|沉声|冷声)?(?:说|问|道|喊|叫|答|笑道|骂道|喝道|说道)/);
+                    return m ? m[1] : "";
+                  }
+                  function addLine(roleName, isNarration, content) {
+                    content = String(content || "").trim();
+                    if (!content) return;
+                    lines.push({
+                      index: lines.length + 1,
+                      roleName: roleName || "旁白",
+                      voiceTag: isNarration ? "旁白" : "待分配",
+                      isNarration: !!isNarration,
+                      tag: isNarration ? "narration" : (roleName || "未知角色"),
+                      text: content
+                    });
+                  }
+                  paragraphs.forEach(function(p) {
+                    var cursor = 0;
+                    var re = /[“"「『](.*?)[”"」』]/g;
+                    var match;
+                    var lastSpeaker = speakerFrom(p);
+                    while ((match = re.exec(p)) !== null) {
+                      var before = p.substring(cursor, match.index).trim();
+                      if (before) addLine("旁白", true, before);
+                      addLine(lastSpeaker || "未知角色", false, match[1]);
+                      cursor = match.index + match[0].length;
+                    }
+                    var tail = p.substring(cursor).trim();
+                    if (tail) addLine("旁白", true, tail);
+                  });
+                  ctx.lines = lines;
+                  ctx.logs.push("对话切分完成：" + lines.length + " 行");
+                  return ctx;
+                }
+            """.trimIndent()
+
+            "speaker_resolve" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  var lastSpeaker = "";
+                  function infer(text) {
+                    var m = String(text || "").match(/([\u4e00-\u9fa5A-Za-z0-9·]{1,12})(?:轻声|低声|沉声|冷声)?(?:说|问|道|喊|叫|答|笑道|骂道|喝道|说道)/);
+                    return m ? m[1] : "";
+                  }
+                  (ctx.lines || []).forEach(function(line) {
+                    if (line.isNarration || line.roleName === "旁白") {
+                      var s = infer(line.text);
+                      if (s) lastSpeaker = s;
+                    } else if (!line.roleName || line.roleName === "未知角色") {
+                      line.roleName = lastSpeaker || "未知角色";
+                      line.tag = line.roleName;
+                    } else {
+                      lastSpeaker = line.roleName;
+                    }
+                  });
+                  ctx.logs.push("说话人归属完成");
+                  return ctx;
+                }
+            """.trimIndent()
+
+            "voice_tag" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  var used = {};
+                  var characters = [];
+                  function genderOf(name) {
+                    if (/她|娘|姐|妹|女|月|雪|花|香|玉|兰|柔|晴/.test(name)) return "女";
+                    if (/爷|叔|伯|哥|男|夫|郎|公|王|将|侯/.test(name)) return "男";
+                    return "男";
+                  }
+                  function ageOf(name, gender) {
+                    if (/老|婆|嬷|爷|伯|叔|掌柜/.test(name)) return gender + "/" + gender + "老年";
+                    if (/小|童|孩|丫/.test(name)) return gender + "/" + (gender === "女" ? "女童" : "男童");
+                    return gender + "/" + gender + "青年";
+                  }
+                  function nextVoice(age) {
+                    used[age] = (used[age] || 0) + 1;
+                    var num = String(used[age]);
+                    if (num.length < 2) num = "0" + num;
+                    return age + num;
+                  }
+                  var byName = {};
+                  (ctx.lines || []).forEach(function(line) {
+                    if (line.isNarration || line.roleName === "旁白" || line.roleName === "未知角色") return;
+                    if (!byName[line.roleName]) {
+                      var gender = genderOf(line.roleName);
+                      var age = ageOf(line.roleName, gender);
+                      byName[line.roleName] = {
+                        name: line.roleName,
+                        aliases: [line.roleName],
+                        gender: gender,
+                        ageType: age,
+                        voiceTag: nextVoice(age)
+                      };
+                      characters.push(byName[line.roleName]);
+                    }
+                    line.voiceTag = byName[line.roleName].voiceTag;
+                  });
+                  ctx.characters = characters;
+                  ctx.logs.push("音色标签分配完成：" + characters.length + " 个角色");
+                  return ctx;
+                }
+            """.trimIndent()
+
+            "emotion" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  (ctx.lines || []).forEach(function(line) {
+                    var text = String(line.text || "");
+                    if (/怒|吼|骂|喝|咆哮/.test(text)) line.emotion = "愤怒";
+                    else if (/哭|泪|哽咽|难过|悲/.test(text)) line.emotion = "悲伤";
+                    else if (/笑|哈哈|轻松/.test(text)) line.emotion = "轻松";
+                    else if (/怕|惊|慌|颤/.test(text)) line.emotion = "紧张";
+                    else line.emotion = "平静";
+                  });
+                  ctx.logs.push("情绪分析完成");
+                  return ctx;
+                }
+            """.trimIndent()
+
+            "validate" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  ctx.lines = (ctx.lines || []).filter(function(line) {
+                    return String(line.text || "").trim().length > 0;
+                  }).map(function(line, index) {
+                    line.index = index + 1;
+                    if (!line.roleName) line.roleName = "旁白";
+                    if (line.roleName === "旁白") {
+                      line.isNarration = true;
+                      line.voiceTag = "旁白";
+                      line.tag = "narration";
+                    }
+                    return line;
+                  });
+                  ctx.logs.push("结果校验完成：" + ctx.lines.length + " 行");
+                  return ctx;
+                }
+            """.trimIndent()
         }
         return """
             /**
@@ -558,6 +757,85 @@ object ScriptBrain {
         File(dir, "last_audio_queue.json").writeText(rawQueueJson, Charsets.UTF_8)
         File(dir, "last_rule_log.txt").writeText(logs.joinToString("\n"), Charsets.UTF_8)
         return RuleRunResult(analysis, rawQueueJson, logs)
+    }
+
+    private fun moduleContext(
+        payload: ChapterPayload,
+        existingCharacters: List<ScriptCharacter>,
+    ): JSONObject {
+        return JSONObject()
+            .put("bookName", payload.bookName)
+            .put("bookUrl", payload.bookUrl)
+            .put("bookKey", payload.bookUrl)
+            .put("chapterIndex", payload.chapterIndex)
+            .put("chapterTitle", payload.chapterTitle)
+            .put("chapterText", payload.chapterText)
+            .put("lines", JSONArray())
+            .put("characters", existingCharacters.toRoleManagerJson())
+            .put("logs", JSONArray())
+            .put("voicePool", voicePoolJson())
+    }
+
+    private fun runAnalysisModule(
+        module: AnalysisModule,
+        ctx: JSONObject,
+        logs: MutableList<String>,
+    ): JSONObject {
+        val bindings = ScriptBindings().apply {
+            this["console"] = RuleConsole(logs)
+        }
+        val scope = RhinoScriptEngine.getRuntimeScope(bindings)
+        val script = """
+            (function() {
+              var ctx = JSON.parse(${JSONObject.quote(ctx.toString())});
+              ctx.logs = ctx.logs || [];
+              ctx.lines = ctx.lines || [];
+              ctx.characters = ctx.characters || [];
+              ${module.code}
+              if (typeof run !== 'function') {
+                ctx.logs.push(${JSONObject.quote("${module.name} 未定义 run(ctx)，已跳过")});
+                return JSON.stringify(ctx);
+              }
+              var ret = run(ctx) || ctx;
+              ret.logs = ret.logs || ctx.logs || [];
+              ret.lines = ret.lines || ctx.lines || [];
+              ret.characters = ret.characters || ctx.characters || [];
+              ret.chapterText = ret.chapterText || ctx.chapterText || "";
+              return JSON.stringify(ret);
+            })();
+        """.trimIndent()
+        val raw = RhinoScriptEngine.eval(script, scope)?.toString().orEmpty()
+        return JSONObject(raw)
+    }
+
+    private fun analysisFromModuleContext(
+        payload: ChapterPayload,
+        ctx: JSONObject,
+        existingCharacters: List<ScriptCharacter>,
+    ): Analysis {
+        val chapterText = firstText(ctx, "chapterText").ifBlank { payload.chapterText }
+        val rawLines = ctx.optJSONArray("lines")?.let {
+            parseAudioQueue(JSONObject().put("audioQueue", it).toString())
+        }.orEmpty()
+        val lines = rawLines.ifEmpty {
+            analyze(payload.bookName, payload.chapterIndex, payload.chapterTitle, chapterText).lines
+        }.mapIndexed { index, line -> line.copy(index = index + 1) }
+        val suggestedCharacters = ctx.optJSONArray("characters")
+            ?.let { parseCharacterArray(it) }
+            .orEmpty()
+        val locked = lockCharactersAndLines(
+            existingCharacters = existingCharacters,
+            suggestedCharacters = suggestedCharacters + charactersFromLines(lines),
+            rawLines = lines,
+        )
+        return Analysis(
+            bookName = payload.bookName,
+            chapterIndex = payload.chapterIndex,
+            chapterTitle = payload.chapterTitle,
+            characters = locked.characters,
+            lines = locked.lines,
+            updatedAt = System.currentTimeMillis(),
+        )
     }
 
     private fun ruleCallJs(payload: JSONObject): String {
@@ -1270,6 +1548,12 @@ object ScriptBrain {
                 code = defaultModuleCode("text_preprocess", "文本预处理")
             ),
             AnalysisModule(
+                id = "ad_clean_regex",
+                name = "广告清理（本地正则）",
+                type = "regex",
+                code = defaultModuleCode("ad_clean_regex", "广告清理（本地正则）")
+            ),
+            AnalysisModule(
                 id = "dialogue_split",
                 name = "对话切分",
                 code = defaultModuleCode("dialogue_split", "对话切分")
@@ -1346,6 +1630,15 @@ object ScriptBrain {
     private fun List<AnalysisModule>.toJsonArray(): JSONArray {
         return JSONArray().also { array ->
             forEach { array.put(it.toJson()) }
+        }
+    }
+
+    private fun JSONArray?.toStringList(): List<String> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                optString(index).takeIf { it.isNotBlank() }?.let { add(it) }
+            }
         }
     }
 

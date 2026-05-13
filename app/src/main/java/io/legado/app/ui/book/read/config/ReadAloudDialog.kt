@@ -998,9 +998,24 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 dialog?.dismiss()
                 showEditAnalysisModule(null)
             },
+            Button(context).compact("添加正则") {
+                dialog?.dismiss()
+                val name = "本地正则清理"
+                showEditAnalysisModule(
+                    ScriptBrain.AnalysisModule(
+                        id = "regex_${System.currentTimeMillis()}",
+                        name = name,
+                        type = "regex",
+                        enabled = true,
+                        code = ScriptBrain.defaultModuleCode("ad_clean_regex", name),
+                    )
+                )
+            },
             Button(context).compact("规则库") {
                 showScriptRuleLibrary()
             },
+        )
+        addButtonRow(
             Button(context).compact("说明") {
                 showScriptRuleHelp()
             },
