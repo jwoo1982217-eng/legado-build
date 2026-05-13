@@ -1208,18 +1208,24 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         toastOnUi("正在测试模块：${module.name}")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
-                runCatching { ScriptBrain.runAnalysisModulesForCurrentChapter(appContext) }
+                runCatching {
+                    ScriptBrain.runAnalysisModulesForCurrentChapter(
+                        context = appContext,
+                        stopAtModuleId = module.id,
+                    )
+                }
             }
             if (!isAdded) return@launch
             result.onSuccess { runResult ->
                 showTextDialog(
                     "模块测试：${module.name}",
                     buildString {
-                        appendLine("已运行当前章模块流程。")
+                        appendLine("已运行到当前模块为止。")
                         appendLine("台词：${runResult.analysis.lines.size} 行")
                         appendLine("角色：${runResult.analysis.characters.size} 个")
                         appendLine()
-                        appendLine("结果已写入角色表和台词本。")
+                        appendLine("结果已写入角色表和台词本，方便直接对照。")
+                        appendModuleReports(runResult.moduleReports)
                         appendLine()
                         appendLine("日志：")
                         runResult.logs.forEach { appendLine(it) }
@@ -1337,6 +1343,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             appendLine("${analysis.chapterTitle}")
             appendLine("运行完成：${analysis.lines.size} 行台词，${analysis.characters.size} 个角色")
             appendLine(note)
+            appendModuleReports(runResult.moduleReports)
             appendLine()
             analysis.lines.take(120).forEach { line ->
                 appendLine("${line.index.toString().padStart(2, '0')}  ${line.roleName}  ${line.voiceTag}")
@@ -1350,6 +1357,35 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             if (analysis.lines.size > 120) {
                 appendLine()
                 appendLine("已显示前 120 行，完整结果已保存。")
+            }
+        }
+    }
+
+    private fun StringBuilder.appendModuleReports(reports: List<ScriptBrain.ModuleRunReport>) {
+        if (reports.isEmpty()) return
+        appendLine()
+        appendLine("模块诊断：")
+        reports.forEach { report ->
+            val statusText = when (report.status) {
+                "ok" -> "成功"
+                "failed" -> "失败"
+                "skipped" -> "跳过"
+                else -> report.status
+            }
+            appendLine(
+                "${report.index.toString().padStart(2, '0')} ${report.moduleName}：$statusText"
+            )
+            appendLine(
+                "    正文 ${report.beforeTextLength} -> ${report.afterTextLength} 字，" +
+                        "台词 ${report.beforeLineCount} -> ${report.afterLineCount} 行，" +
+                        "角色 ${report.beforeCharacterCount} -> ${report.afterCharacterCount} 个"
+            )
+            if (report.message.isNotBlank() && report.message != "运行成功") {
+                appendLine("    原因：${report.message}")
+            }
+            if (report.sampleLines.isNotEmpty()) {
+                appendLine("    样例：")
+                report.sampleLines.forEach { appendLine("      $it") }
             }
         }
     }

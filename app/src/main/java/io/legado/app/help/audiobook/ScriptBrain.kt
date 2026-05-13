@@ -54,11 +54,33 @@ object ScriptBrain {
         val analysis: Analysis,
         val rawQueueJson: String,
         val logs: List<String>,
+        val moduleReports: List<ModuleRunReport> = emptyList(),
+    )
+
+    data class ModuleRunReport(
+        val index: Int,
+        val moduleId: String,
+        val moduleName: String,
+        val status: String,
+        val message: String,
+        val beforeTextLength: Int,
+        val afterTextLength: Int,
+        val beforeLineCount: Int,
+        val afterLineCount: Int,
+        val beforeCharacterCount: Int,
+        val afterCharacterCount: Int,
+        val sampleLines: List<String> = emptyList(),
     )
 
     private data class LockedAnalysisData(
         val characters: List<ScriptCharacter>,
         val lines: List<ScriptLine>,
+    )
+
+    private data class ModuleStats(
+        val textLength: Int,
+        val lineCount: Int,
+        val characterCount: Int,
     )
 
     data class ImportedRuleInfo(
@@ -109,7 +131,10 @@ object ScriptBrain {
         return runAnalysisModulesForCurrentChapter(context.applicationContext).analysis
     }
 
-    fun runAnalysisModulesForCurrentChapter(context: Context): RuleRunResult {
+    fun runAnalysisModulesForCurrentChapter(
+        context: Context,
+        stopAtModuleId: String? = null,
+    ): RuleRunResult {
         val appContext = context.applicationContext
         val payload = currentChapterPayload()
         val modules = analysisModules(appContext)
@@ -121,18 +146,72 @@ object ScriptBrain {
             "整章正文：${payload.chapterText.length} 字"
         )
         var ctx = moduleContext(payload, existingCharacters)
-        modules.forEachIndexed { index, module ->
+        val reports = arrayListOf<ModuleRunReport>()
+        for ((index, module) in modules.withIndex()) {
             val prefix = (index + 1).toString().padStart(2, '0')
+            val before = moduleStats(ctx)
             if (!module.enabled) {
                 logs.add("$prefix 跳过：${module.name}")
-                return@forEachIndexed
+                reports.add(
+                    ModuleRunReport(
+                        index = index + 1,
+                        moduleId = module.id,
+                        moduleName = module.name,
+                        status = "skipped",
+                        message = "模块已关闭",
+                        beforeTextLength = before.textLength,
+                        afterTextLength = before.textLength,
+                        beforeLineCount = before.lineCount,
+                        afterLineCount = before.lineCount,
+                        beforeCharacterCount = before.characterCount,
+                        afterCharacterCount = before.characterCount,
+                        sampleLines = moduleSampleLines(ctx),
+                    )
+                )
+                if (module.id == stopAtModuleId) break
+                continue
             }
             logs.add("$prefix 运行：${module.name}")
             runCatching {
                 ctx = runAnalysisModule(module, ctx, logs)
+                val after = moduleStats(ctx)
+                reports.add(
+                    ModuleRunReport(
+                        index = index + 1,
+                        moduleId = module.id,
+                        moduleName = module.name,
+                        status = "ok",
+                        message = "运行成功",
+                        beforeTextLength = before.textLength,
+                        afterTextLength = after.textLength,
+                        beforeLineCount = before.lineCount,
+                        afterLineCount = after.lineCount,
+                        beforeCharacterCount = before.characterCount,
+                        afterCharacterCount = after.characterCount,
+                        sampleLines = moduleSampleLines(ctx),
+                    )
+                )
             }.onFailure { error ->
-                logs.add("$prefix 失败：${module.name} - ${error.localizedMessage ?: error.javaClass.simpleName}")
+                val message = error.localizedMessage ?: error.javaClass.simpleName
+                logs.add("$prefix 失败：${module.name} - $message")
+                reports.add(
+                    ModuleRunReport(
+                        index = index + 1,
+                        moduleId = module.id,
+                        moduleName = module.name,
+                        status = "failed",
+                        message = message,
+                        beforeTextLength = before.textLength,
+                        afterTextLength = before.textLength,
+                        beforeLineCount = before.lineCount,
+                        afterLineCount = before.lineCount,
+                        beforeCharacterCount = before.characterCount,
+                        afterCharacterCount = before.characterCount,
+                        sampleLines = moduleSampleLines(ctx),
+                    )
+                )
             }
+            if (module.id == stopAtModuleId) break
         }
         val ctxLogs = ctx.optJSONArray("logs").toStringList()
         val analysis = analysisFromModuleContext(
@@ -148,7 +227,7 @@ object ScriptBrain {
         File(dir, "last_audio_queue.json").writeText(rawQueueJson, Charsets.UTF_8)
         val finalLogs = (logs + ctxLogs).distinct()
         File(dir, "last_module_log.txt").writeText(finalLogs.joinToString("\n"), Charsets.UTF_8)
-        return RuleRunResult(analysis, rawQueueJson, finalLogs)
+        return RuleRunResult(analysis, rawQueueJson, finalLogs, reports)
     }
 
     fun runImportedRuleForCurrentChapter(context: Context): RuleRunResult {
@@ -806,6 +885,27 @@ object ScriptBrain {
         """.trimIndent()
         val raw = RhinoScriptEngine.eval(script, scope)?.toString().orEmpty()
         return JSONObject(raw)
+    }
+
+    private fun moduleStats(ctx: JSONObject): ModuleStats {
+        return ModuleStats(
+            textLength = firstText(ctx, "chapterText").length,
+            lineCount = ctx.optJSONArray("lines")?.length() ?: 0,
+            characterCount = ctx.optJSONArray("characters")?.length() ?: 0,
+        )
+    }
+
+    private fun moduleSampleLines(ctx: JSONObject, limit: Int = 5): List<String> {
+        val lines = ctx.optJSONArray("lines") ?: return emptyList()
+        return buildList {
+            for (index in 0 until minOf(limit, lines.length())) {
+                val line = lines.optJSONObject(index) ?: continue
+                val roleName = firstText(line, "roleName", "speaker", "character").ifBlank { "旁白" }
+                val voiceTag = firstText(line, "voiceTag", "voice", "tag").ifBlank { "待分配" }
+                val text = firstText(line, "text", "content").replace(Regex("\\s+"), " ").take(80)
+                add("${(index + 1).toString().padStart(2, '0')} $roleName / $voiceTag：$text")
+            }
+        }
     }
 
     private fun analysisFromModuleContext(
