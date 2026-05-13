@@ -248,10 +248,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
         }
 
-        btnAudiobookGenerate.setOnClickListener {
-            callBack?.generateAudiobookCache()
-            dismissAllowingStateLoss()
-        }
         btnAudiobookStatus.setOnClickListener {
             callBack?.showAudiobookCacheStatus()
             dismissAllowingStateLoss()

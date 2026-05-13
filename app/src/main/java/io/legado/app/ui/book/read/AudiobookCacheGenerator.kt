@@ -242,7 +242,7 @@ class AudiobookCacheGenerator(
                 append("\n查询范围：全书 ")
                 append(chapters.size)
                 append(" 章")
-                append("\n生成窗口：生成缓存默认提交当前章 + 后面 ")
+                append("\n生成窗口：后台预缓存/朗读默认提交当前章 + 后面 ")
                 append(preloadCount)
                 append(" 章")
                 append("\n查询对象：句子片段 + 完整章节音频")
