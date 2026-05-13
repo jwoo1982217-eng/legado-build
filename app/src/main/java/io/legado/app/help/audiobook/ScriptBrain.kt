@@ -173,7 +173,7 @@ object ScriptBrain {
             }
             logs.add("$prefix 运行：${module.name}")
             runCatching {
-                ctx = runAnalysisModule(module, ctx, logs)
+                ctx = runAnalysisModule(appContext, module, ctx, logs)
                 val after = moduleStats(ctx)
                 reports.add(
                     ModuleRunReport(
@@ -304,7 +304,29 @@ object ScriptBrain {
 
     fun analysisModules(context: Context): List<AnalysisModule> {
         val raw = context.applicationContext.getPrefString(KEY_ANALYSIS_MODULES).orEmpty()
-        return parseAnalysisModules(raw).ifEmpty { defaultAnalysisModules() }
+        val modules = parseAnalysisModules(raw).ifEmpty { defaultAnalysisModules() }
+        val savedVersion = context.applicationContext
+            .getPrefString(KEY_ANALYSIS_MODULES_VERSION)
+            .orEmpty()
+            .toIntOrNull() ?: 0
+        if (savedVersion >= DEFAULT_ANALYSIS_MODULE_VERSION) return modules
+
+        val defaults = defaultAnalysisModules().associateBy { it.id }
+        val upgraded = modules.map { module ->
+            defaults[module.id]?.let { latest ->
+                module.copy(
+                    name = latest.name,
+                    type = latest.type,
+                    code = latest.code,
+                )
+            } ?: module
+        }.ifEmpty { defaultAnalysisModules() }
+        saveAnalysisModules(context.applicationContext, upgraded)
+        context.applicationContext.putPrefString(
+            KEY_ANALYSIS_MODULES_VERSION,
+            DEFAULT_ANALYSIS_MODULE_VERSION.toString()
+        )
+        return upgraded
     }
 
     fun saveAnalysisModules(context: Context, modules: List<AnalysisModule>) {
@@ -461,23 +483,181 @@ object ScriptBrain {
             "speaker_resolve" -> return """
                 function run(ctx) {
                   ctx.logs = ctx.logs || [];
-                  var lastSpeaker = "";
-                  function infer(text) {
-                    var m = String(text || "").match(/([\u4e00-\u9fa5A-Za-z0-9·]{1,12})(?:轻声|低声|沉声|冷声)?(?:说|问|道|喊|叫|答|笑道|骂道|喝道|说道)/);
-                    return m ? m[1] : "";
+                  var BAD = {
+                    "我":1,"你":1,"他":1,"她":1,"它":1,"我们":1,"你们":1,"他们":1,"她们":1,
+                    "众人":1,"有人":1,"一人":1,"男人":1,"女人":1,"少年":1,"少女":1,
+                    "旁白":1,"未知":1,"未知角色":1,"未知发言人":1
+                  };
+                  function cleanName(name) {
+                    name = String(name || "").trim();
+                    name = name.replace(/[“”"「」『』《》（）()【】\\[\\]{}]/g, "");
+                    name = name.replace(/^(那个|这个|那名|这名|一名|一个|一位|那位|这位)/, "");
+                    name = name.replace(/(轻声|低声|沉声|冷声|柔声|小声|大声|笑着|皱眉|急忙|连忙|忍不住|忽然|淡淡|冷冷|怒声|厉声|颤声|哑声|平静地|认真地|疑惑地|无奈地|说道|说|问道|问|道|喊道|喊|叫道|叫|笑道|怒道|喝道|答道|回答|开口|嘀咕|喃喃).*$/g, "");
+                    name = name.replace(/^[，。！？、；：,.!?;:\\s]+|[，。！？、；：,.!?;:\\s]+$/g, "");
+                    if (name.length > 8) name = "";
+                    if (BAD[name]) name = "";
+                    return name;
                   }
-                  (ctx.lines || []).forEach(function(line) {
+                  function inferLocal(text) {
+                    text = String(text || "");
+                    var patterns = [
+                      /([\u4e00-\u9fa5A-Za-z0-9·]{1,8})(?:轻声|低声|沉声|冷声|柔声|小声|大声|笑着|皱眉|急忙|连忙|忍不住|忽然|淡淡|冷冷|怒声|厉声|颤声|哑声|平静地|认真地|疑惑地|无奈地)?(?:说道|说|问道|问|道|喊道|喊|叫道|叫|笑道|怒道|喝道|答道|回答|开口|嘀咕|喃喃)/,
+                      /(?:说道|说|问道|问|道|喊道|喊|叫道|叫|笑道|怒道|喝道|答道|回答|开口|嘀咕|喃喃)(?:的|的人)?是([\u4e00-\u9fa5A-Za-z0-9·]{1,8})/,
+                      /([\u4e00-\u9fa5A-Za-z0-9·]{1,8})(?:看向|望向|瞪着|盯着|拉住|拦住).{0,16}(?:说道|说|问|道|喊|叫)/
+                    ];
+                    for (var i = 0; i < patterns.length; i++) {
+                      var m = text.match(patterns[i]);
+                      var n = m ? cleanName(m[1]) : "";
+                      if (n) return n;
+                    }
+                    return "";
+                  }
+                  function lineBrief(line) {
+                    return {
+                      index: line.index,
+                      text: String(line.text || "").slice(0, 180),
+                      isNarration: !!line.isNarration,
+                      currentRoleName: line.roleName || ""
+                    };
+                  }
+                  function applyAiResult(result) {
+                    var items = result && (result.items || result.lines || result.audioQueue || result);
+                    if (!items || !items.length) return 0;
+                    var byIndex = {};
+                    for (var i = 0; i < items.length; i++) {
+                      var it = items[i] || {};
+                      var idx = parseInt(it.index || it.id || it.seq, 10);
+                      if (!isNaN(idx)) byIndex[idx] = it;
+                    }
+                    var changed = 0;
+                    (ctx.lines || []).forEach(function(line) {
+                      var it = byIndex[line.index];
+                      if (!it || line.isNarration) return;
+                      var name = cleanName(it.roleName || it.speaker || it.character || it.name);
+                      if (!name) return;
+                      line.roleName = name;
+                      line.tag = name;
+                      if (it.gender) line.gender = String(it.gender);
+                      if (it.ageType || it.age) line.ageType = String(it.ageType || it.age);
+                      if (it.emotion) line.emotion = String(it.emotion);
+                      changed++;
+                    });
+                    return changed;
+                  }
+                  var localLastSpeaker = "";
+                  (ctx.lines || []).forEach(function(line, idx) {
                     if (line.isNarration || line.roleName === "旁白") {
-                      var s = infer(line.text);
-                      if (s) lastSpeaker = s;
+                      var local = inferLocal(line.text);
+                      if (local) localLastSpeaker = local;
                     } else if (!line.roleName || line.roleName === "未知角色") {
-                      line.roleName = lastSpeaker || "未知角色";
+                      var prev = idx > 0 ? ctx.lines[idx - 1] : null;
+                      var next = idx + 1 < ctx.lines.length ? ctx.lines[idx + 1] : null;
+                      var guess = "";
+                      if (prev) guess = inferLocal(prev.text);
+                      if (!guess && next) guess = inferLocal(next.text);
+                      line.roleName = guess || localLastSpeaker || "未知角色";
                       line.tag = line.roleName;
                     } else {
-                      lastSpeaker = line.roleName;
+                      var clean = cleanName(line.roleName);
+                      if (clean) {
+                        line.roleName = clean;
+                        line.tag = clean;
+                        localLastSpeaker = clean;
+                      }
                     }
                   });
-                  ctx.logs.push("说话人归属完成");
+                  var aiChanged = 0;
+                  if (typeof brain !== "undefined" && brain && brain.hasModel && brain.hasModel()) {
+                    try {
+                      var dialogueLines = (ctx.lines || []).filter(function(line) { return !line.isNarration; }).map(lineBrief);
+                      var prompt =
+                        "你正在为小说有声书做多角色朗读分析。请根据整章上下文判断每一句对话的说话人。\\n" +
+                        "规则：1. 不要把引号内部提到的人名当说话人；2. 旁白保持旁白；3. 角色名必须清洗成真实人物名，不要带说/问/动作词；4. 不确定时给出最合理的临时称呼，如群众男青年、群众女青年；5. 输出 JSON。\\n" +
+                        "输出格式：{\"items\":[{\"index\":2,\"roleName\":\"张三\",\"gender\":\"男\",\"ageType\":\"男/男青年\",\"emotion\":\"平静\"}]}\\n" +
+                        "书名：" + ctx.bookName + "\\n章节：" + ctx.chapterTitle + "\\n" +
+                        "已有角色表：" + JSON.stringify(ctx.characters || []) + "\\n" +
+                        "整章正文：\\n" + String(ctx.chapterText || "").slice(0, 12000) + "\\n" +
+                        "待归属台词：\\n" + JSON.stringify(dialogueLines);
+                      var aiText = brain.chatJson(prompt);
+                      aiChanged = applyAiResult(JSON.parse(aiText));
+                      ctx.logs.push("AI说话人归属完成：更新 " + aiChanged + " 行");
+                    } catch (e) {
+                      ctx.logs.push("AI说话人归属失败，已保留本地归属：" + e);
+                    }
+                  }
+                  ctx.logs.push("说话人归属完成：AI更新 " + aiChanged + " 行");
+                  return ctx;
+                }
+            """.trimIndent()
+
+            "alias_merge" -> return """
+                function run(ctx) {
+                  ctx.logs = ctx.logs || [];
+                  function cleanName(name) {
+                    name = String(name || "").trim();
+                    name = name.replace(/[“”"「」『』《》（）()【】\\[\\]{}]/g, "");
+                    name = name.replace(/^(那个|这个|那名|这名|一名|一个|一位|那位|这位)/, "");
+                    name = name.replace(/(轻声|低声|沉声|冷声|柔声|小声|大声|笑着|皱眉|急忙|连忙|忍不住|忽然|淡淡|冷冷|怒声|厉声|颤声|哑声|平静地|认真地|疑惑地|无奈地|说道|说|问道|问|道|喊道|喊|叫道|叫|笑道|怒道|喝道|答道|回答|开口|嘀咕|喃喃).*$/g, "");
+                    name = name.replace(/^[，。！？、；：,.!?;:\\s]+|[，。！？、；：,.!?;:\\s]+$/g, "");
+                    if (/^(我|你|他|她|它|我们|你们|他们|她们|有人|众人|一人|旁白|未知|未知角色)$/.test(name)) return "";
+                    if (name.length > 8) return "";
+                    return name;
+                  }
+                  function genderOf(name) {
+                    if (/她|娘|姐|妹|女|月|雪|花|香|玉|兰|柔|晴|薇|妍|媛|婉|姝|瑶|嫣/.test(name)) return "女";
+                    if (/爷|叔|伯|哥|男|夫|郎|公|王|将|侯|掌柜|父|兄/.test(name)) return "男";
+                    return "";
+                  }
+                  function ageOf(name, gender) {
+                    if (/老|婆|嬷|爷|伯|叔|掌柜|太君|夫人|长老/.test(name)) return (gender === "女" ? "女/女老年" : "男/男老年");
+                    if (/小|童|孩|丫|娃/.test(name)) return (gender === "女" ? "女/女童" : "男/男童");
+                    if (/少年|少爷|公子/.test(name)) return "男/少年";
+                    if (/少女|姑娘|小姐/.test(name)) return "女/少女";
+                    return gender === "女" ? "女/女青年" : "男/男青年";
+                  }
+                  var aliasMap = {};
+                  (ctx.characters || []).forEach(function(ch) {
+                    var main = cleanName(ch.name);
+                    if (!main) return;
+                    aliasMap[main] = main;
+                    String(ch.aliases || ch.name || "").split("|").forEach(function(alias) {
+                      alias = cleanName(alias);
+                      if (alias) aliasMap[alias] = main;
+                    });
+                  });
+                  var byName = {};
+                  var changed = 0;
+                  (ctx.lines || []).forEach(function(line) {
+                    if (line.isNarration || line.roleName === "旁白") return;
+                    var clean = cleanName(line.roleName);
+                    if (!clean) {
+                      line.roleName = "未知角色";
+                      line.tag = "未知角色";
+                      return;
+                    }
+                    var main = aliasMap[clean] || clean;
+                    if (main !== line.roleName) changed++;
+                    line.roleName = main;
+                    line.tag = main;
+                    if (!byName[main]) {
+                      var gender = line.gender || genderOf(main) || "男";
+                      byName[main] = {
+                        name: main,
+                        aliases: main === clean ? [main] : [main, clean],
+                        gender: gender,
+                        ageType: line.ageType || ageOf(main, gender),
+                        voiceTag: line.voiceTag || "待分配"
+                      };
+                    } else if (clean !== main && byName[main].aliases.indexOf(clean) < 0) {
+                      byName[main].aliases.push(clean);
+                    }
+                  });
+                  var characters = [];
+                  for (var name in byName) {
+                    if (byName.hasOwnProperty(name)) characters.push(byName[name]);
+                  }
+                  ctx.characters = characters;
+                  ctx.logs.push("角色名清洗/别名合并完成：角色 " + characters.length + " 个，修正 " + changed + " 行");
                   return ctx;
                 }
             """.trimIndent()
@@ -856,12 +1036,14 @@ object ScriptBrain {
     }
 
     private fun runAnalysisModule(
+        context: Context,
         module: AnalysisModule,
         ctx: JSONObject,
         logs: MutableList<String>,
     ): JSONObject {
         val bindings = ScriptBindings().apply {
             this["console"] = RuleConsole(logs)
+            this["brain"] = AnalysisBridge(context.applicationContext, logs)
         }
         val scope = RhinoScriptEngine.getRuntimeScope(bindings)
         val script = """
@@ -1832,6 +2014,8 @@ object ScriptBrain {
     private const val KEY_SELECTED_MODEL_PROFILE = "script_brain_selected_model_profile"
     private const val KEY_SELECTED_MODEL_PROFILES = "script_brain_selected_model_profiles"
     private const val KEY_ANALYSIS_MODULES = "script_brain_analysis_modules"
+    private const val KEY_ANALYSIS_MODULES_VERSION = "script_brain_analysis_modules_version"
+    private const val DEFAULT_ANALYSIS_MODULE_VERSION = 2
 
     private fun String.safeFileName(): String {
         return replace(Regex("[\\\\/:*?\"<>|\\r\\n]+"), "_").take(80).ifBlank { "未命名" }
@@ -1844,6 +2028,93 @@ object ScriptBrain {
         val chapterTitle: String,
         val chapterText: String,
     )
+
+    class AnalysisBridge(
+        private val context: Context,
+        private val logs: MutableList<String>,
+    ) {
+        fun hasModel(): Boolean {
+            return selectedModelProfiles(context.applicationContext).isNotEmpty()
+        }
+
+        fun chatJson(prompt: String?): String {
+            val profiles = selectedModelProfiles(context.applicationContext)
+            require(profiles.isNotEmpty()) { "还没有配置分析模型" }
+            var lastError = ""
+            profiles.forEach { profile ->
+                runCatching {
+                    callModel(profile, prompt.orEmpty())
+                }.onSuccess { raw ->
+                    val jsonText = extractJsonText(raw)
+                    if (jsonText.isNotBlank()) {
+                        logs.add("brain: ${profile.name.ifBlank { profile.modelName }} 返回 JSON ${jsonText.length} 字")
+                        return jsonText
+                    }
+                    lastError = "模型返回不是 JSON"
+                }.onFailure {
+                    lastError = it.localizedMessage ?: it.javaClass.simpleName
+                    logs.add("brain: ${profile.name.ifBlank { profile.modelName }} 失败：$lastError")
+                }
+            }
+            error(lastError.ifBlank { "模型未返回可解析 JSON" })
+        }
+
+        private fun callModel(profile: AnalysisModelProfile, prompt: String): String {
+            val body = JSONObject()
+                .put("model", profile.modelName.trim())
+                .put(
+                    "messages",
+                    JSONArray()
+                        .put(
+                            JSONObject()
+                                .put("role", "system")
+                                .put("content", "你是中文小说有声书多角色朗读分析器。只输出可解析 JSON，不要 Markdown，不要解释。")
+                        )
+                        .put(JSONObject().put("role", "user").put("content", prompt))
+                )
+                .put("temperature", 0.1)
+                .toString()
+            val request = Request.Builder()
+                .url(normalizeChatCompletionsUrl(profile.modelUrl))
+                .post(body.toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+                .header("Content-Type", "application/json")
+                .apply {
+                    if (profile.modelKey.isNotBlank()) {
+                        header("Authorization", "Bearer ${profile.modelKey.trim()}")
+                    }
+                }
+                .build()
+            return okHttpClient.newCall(request).execute().use { response ->
+                val text = response.body.string()
+                if (!response.isSuccessful) {
+                    error("HTTP ${response.code}: ${text.take(240)}")
+                }
+                val obj = runCatching { JSONObject(text) }.getOrNull() ?: return text
+                val choice = obj.optJSONArray("choices")?.optJSONObject(0)
+                val message = choice?.optJSONObject("message")
+                firstText(message, "content")
+                    .ifBlank { firstText(message, "reasoning_content") }
+                    .ifBlank { text }
+            }
+        }
+
+        private fun extractJsonText(raw: String): String {
+            var text = raw.trim()
+            text = text
+                .removePrefix("```json")
+                .removePrefix("```JSON")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+            val objectStart = text.indexOf('{')
+            val arrayStart = text.indexOf('[')
+            val start = listOf(objectStart, arrayStart).filter { it >= 0 }.minOrNull() ?: return ""
+            val endChar = if (text[start] == '{') '}' else ']'
+            val end = text.lastIndexOf(endChar)
+            if (end <= start) return ""
+            return text.substring(start, end + 1).trim()
+        }
+    }
 
     class RuleConsole(private val logs: MutableList<String>) {
         fun log(vararg messages: Any?) {
