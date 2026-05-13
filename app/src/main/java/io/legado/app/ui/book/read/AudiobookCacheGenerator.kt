@@ -80,7 +80,7 @@ class AudiobookCacheGenerator(
             setPadding(24.dpToPx(), 16.dpToPx(), 24.dpToPx(), 8.dpToPx())
         }
         val statusDialog = AlertDialog.Builder(context)
-            .setTitle("合成进度")
+            .setTitle("章节列表")
             .setView(ScrollView(context).apply { addView(statusContainer) })
             .setPositiveButton(R.string.ok, null)
             .setNeutralButton("刷新", null)
@@ -108,7 +108,7 @@ class AudiobookCacheGenerator(
                 }.onFailure { error ->
                     renderStatusMessage(
                         container = statusContainer,
-                        message = "合成进度查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
+                        message = "章节列表查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
                     )
                 }
             }
@@ -152,12 +152,12 @@ class AudiobookCacheGenerator(
         val targetDesc = if (useTtsServer) {
             "工作方式：把 $submitCount 章正文提交给 TTS，由 TTS 分析台词本、请求句子音频、生成章节缓存。"
         } else {
-            "工作方式：开源阅读优先复用朗读缓存，缺失时调用当前朗读引擎，把每句音频保存到章节目录；开启整章合并后再生成完整章节音频。"
+            "工作方式：开源阅读优先复用朗读缓存，缺失时调用当前朗读引擎，把每句音频保存到章节目录；开启生成有声书后再生成完整章节音频。"
         }
         val statusDesc = if (useTtsServer) {
             "完成判断：以 TTS 端实际缓存队列结果为准。"
         } else {
-            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。当前设置：整章合并=${if (AppConfig.audiobookAutoMergeAfterRead) "开" else "关"}，完整章节音频统一保存为受保护加密 MP3，仅本 App 可播放。"
+            "保存位置：阅读 App 文件目录 / Music / 阅读有声书。当前设置：生成有声书=${if (AppConfig.audiobookAutoMergeAfterRead) "开" else "关"}，完整章节音频统一保存为受保护加密 MP3，仅本 App 可播放。"
         }
 
         AlertDialog.Builder(context)

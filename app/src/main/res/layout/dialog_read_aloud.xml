@@ -292,20 +292,11 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
-            android:contentDescription="整章合并"
-            android:text="整章合并"
+            android:contentDescription="生成有声书"
+            android:text="生成有声书"
             tools:ignore="HardcodedText,TouchTargetSizeCheck" />
 
     </LinearLayout>
-
-    <io.legado.app.lib.theme.view.ThemeSwitch
-        android:id="@+id/cb_audiobook_convert_mp3"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginVertical="4dp"
-        android:contentDescription="加密MP3"
-        android:text="加密MP3"
-        tools:ignore="HardcodedText,TouchTargetSizeCheck" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -332,7 +323,7 @@
             android:layout_height="48dp"
             android:layout_marginStart="4dp"
             android:layout_weight="1"
-            android:text="合成进度"
+            android:text="章节列表"
             app:icon="@drawable/ic_history"
             tools:ignore="HardcodedText" />
 
