@@ -720,15 +720,28 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             .show()
     }
 
-    private fun roleManagerPluginView(snapshot: ScriptBrain.RoleManagerSnapshot): ScrollView {
+    private fun roleManagerPluginView(snapshot: ScriptBrain.RoleManagerSnapshot): View {
         val context = requireContext()
-        val container = LinearLayout(context).apply {
+        var currentSnapshot = snapshot
+        val markedIndices = linkedSetOf<Int>()
+        var selectedIndex = -1
+        var filterKeyword = ""
+        lateinit var openRoleOperations: (Int) -> Unit
+
+        val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(14.dpToPx(), 8.dpToPx(), 14.dpToPx(), 12.dpToPx())
+            setPadding(12.dpToPx(), 8.dpToPx(), 12.dpToPx(), 10.dpToPx())
+        }
+        val listContainer = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        val roleLabel = TextView(context).apply {
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(35, 35, 35))
+            includeFontPadding = false
         }
 
-        fun addText(text: String, size: Float = 15f, bold: Boolean = false, color: Int = Color.rgb(45, 45, 45)) {
-            container.addView(TextView(context).apply {
+        fun addText(text: String, size: Float = 14f, bold: Boolean = false, color: Int = Color.rgb(45, 45, 45)) {
+            root.addView(TextView(context).apply {
                 this.text = text
                 textSize = size
                 setTextColor(color)
@@ -738,10 +751,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             })
         }
 
-        fun button(label: String, color: Int): Button {
+        fun button(label: String, color: Int, action: () -> Unit): Button {
             return Button(context).apply {
                 text = label
-                textSize = 12f
+                textSize = 11f
                 isAllCaps = false
                 minHeight = 0
                 minimumHeight = 0
@@ -754,32 +767,255 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                     cornerRadius = 4.dpToPx().toFloat()
                     setColor(color)
                 }
-                setOnClickListener { toastOnUi("$label：阅读端角色管理模块已接入") }
+                setOnClickListener { action() }
             }
         }
 
-        fun addButtonRow(labels: List<String>, colors: List<Int>) {
+        fun runRoleAction(block: () -> ScriptBrain.RoleManagerActionResult) {
+            runCatching { block() }
+                .onSuccess { result ->
+                    toastOnUi(result.message)
+                    currentSnapshot = result.snapshot
+                    markedIndices.removeAll { it !in currentSnapshot.characters.indices }
+                    if (selectedIndex !in currentSnapshot.characters.indices) {
+                        selectedIndex = markedIndices.firstOrNull() ?: -1
+                    }
+                    renderRoleList(currentSnapshot, listContainer, roleLabel, markedIndices, selectedIndex, filterKeyword) {
+                        selectedIndex = it
+                        openRoleOperations(it)
+                    }
+                }
+                .onFailure {
+                    toastOnUi(it.localizedMessage ?: it.javaClass.simpleName)
+                }
+        }
+
+        fun addButtonRow(vararg buttons: Button) {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 3.dpToPx(), 0, 3.dpToPx())
             }
-            labels.forEachIndexed { index, label ->
-                row.addView(button(label, colors.getOrElse(index) { Color.rgb(80, 160, 80) }).apply {
+            buttons.forEach { item ->
+                row.addView(item.apply {
                     layoutParams = LinearLayout.LayoutParams(0, 34.dpToPx(), 1f).apply {
                         setMargins(2.dpToPx(), 0, 2.dpToPx(), 0)
                     }
                 })
             }
-            container.addView(row)
+            root.addView(row)
         }
 
+        fun selectedMarks(): Set<Int> {
+            return markedIndices.filter { it in currentSnapshot.characters.indices }.toSet()
+        }
+
+        fun chooseVoice(title: String, onPick: (String) -> Unit) {
+            val voices = ScriptBrain.roleManagerVoiceOptions(context)
+            if (voices.isEmpty()) {
+                toastOnUi("暂无可用发音人")
+                return
+            }
+            context.selector(title, voices) { _, index ->
+                voices.getOrNull(index)?.let(onPick)
+            }
+        }
+
+        fun chooseTag(title: String, onPick: (String) -> Unit) {
+            val tags = ScriptBrain.roleManagerTagOptions()
+            context.selector(title, tags) { _, index ->
+                tags.getOrNull(index)?.let(onPick)
+            }
+        }
+
+        fun showAddRoleDialog() {
+            val nameEdit = EditText(context).apply {
+                hint = "角色名"
+                setSingleLine(true)
+            }
+            val aliasEdit = EditText(context).apply {
+                hint = "别名，用 | 分隔，可不填"
+                setSingleLine(true)
+            }
+            val voiceEdit = EditText(context).apply {
+                hint = "发音人/标签，例如 男/男青年01，可不填"
+                setSingleLine(true)
+            }
+            AlertDialog.Builder(context)
+                .setTitle("新增角色")
+                .setView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(18.dpToPx(), 8.dpToPx(), 18.dpToPx(), 0)
+                    addView(nameEdit)
+                    addView(aliasEdit)
+                    addView(voiceEdit)
+                })
+                .setPositiveButton("新增") { _, _ ->
+                    runRoleAction {
+                        ScriptBrain.addRoleManagerCharacter(
+                            context,
+                            nameEdit.text?.toString().orEmpty(),
+                            aliasEdit.text?.toString().orEmpty(),
+                            voiceEdit.text?.toString().orEmpty(),
+                        )
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+
+        fun showEditRoleDialog(index: Int) {
+            val character = currentSnapshot.characters.getOrNull(index) ?: return
+            val nameEdit = EditText(context).apply {
+                setText(character.name)
+                hint = "角色名"
+                setSingleLine(true)
+            }
+            val aliasEdit = EditText(context).apply {
+                setText(character.aliases)
+                hint = "别名，用 | 分隔"
+                setSingleLine(true)
+            }
+            val voiceEdit = EditText(context).apply {
+                setText(character.voiceTag)
+                hint = "发音人/标签"
+                setSingleLine(true)
+            }
+            AlertDialog.Builder(context)
+                .setTitle("编辑角色")
+                .setView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(18.dpToPx(), 8.dpToPx(), 18.dpToPx(), 0)
+                    addView(nameEdit)
+                    addView(aliasEdit)
+                    addView(voiceEdit)
+                })
+                .setPositiveButton("保存") { _, _ ->
+                    runRoleAction {
+                        ScriptBrain.updateRoleManagerCharacter(
+                            context,
+                            index,
+                            nameEdit.text?.toString().orEmpty(),
+                            aliasEdit.text?.toString().orEmpty(),
+                            voiceEdit.text?.toString().orEmpty(),
+                        )
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+
+        fun showSearchDialog() {
+            val editText = EditText(context).apply {
+                setText(filterKeyword)
+                hint = "搜索角色名或别名，留空显示全部"
+                setSingleLine(true)
+            }
+            AlertDialog.Builder(context)
+                .setTitle("搜索角色")
+                .setView(editText)
+                .setPositiveButton("搜索") { _, _ ->
+                    filterKeyword = editText.text?.toString().orEmpty().trim()
+                    renderRoleList(currentSnapshot, listContainer, roleLabel, markedIndices, selectedIndex, filterKeyword) {
+                        selectedIndex = it
+                        openRoleOperations(it)
+                    }
+                }
+                .setNegativeButton("清空") { _, _ ->
+                    filterKeyword = ""
+                    renderRoleList(currentSnapshot, listContainer, roleLabel, markedIndices, selectedIndex, filterKeyword) {
+                        selectedIndex = it
+                        openRoleOperations(it)
+                    }
+                }
+                .show()
+        }
+
+        fun ensureTargetIndex(): Int {
+            if (selectedIndex in currentSnapshot.characters.indices) return selectedIndex
+            selectedIndex = markedIndices.firstOrNull() ?: -1
+            return selectedIndex
+        }
+
+        fun showRoleOperationDialog(index: Int) {
+            val character = currentSnapshot.characters.getOrNull(index) ?: return
+            val items = listOf("编辑角色", "更换发音人", "固定标签池", "释放角色", "删除角色")
+            context.selector("${character.name} 操作", items) { _, which ->
+                when (which) {
+                    0 -> showEditRoleDialog(index)
+                    1 -> chooseVoice("更换发音人") { voice ->
+                        runRoleAction { ScriptBrain.fixRoleManagerVoice(context, setOf(index), voice) }
+                    }
+                    2 -> chooseTag("固定标签池") { tag ->
+                        runRoleAction { ScriptBrain.fixRoleManagerTag(context, index, tag) }
+                    }
+                    3 -> runRoleAction { ScriptBrain.releaseRoleManagerCharacters(context, setOf(index)) }
+                    4 -> runRoleAction { ScriptBrain.deleteRoleManagerCharacters(context, setOf(index)) }
+                }
+            }
+        }
+
+        openRoleOperations = { index -> showRoleOperationDialog(index) }
+
+        addText("内置模块：${snapshot.pluginName}  v${snapshot.pluginVersion}", 12f, color = Color.rgb(110, 110, 110))
         addButtonRow(
-            listOf("新增角色", "创建新书", "备份恢复", "管理书籍"),
-            listOf(Color.rgb(76, 175, 80), Color.rgb(33, 150, 243), Color.rgb(156, 39, 176), Color.rgb(255, 152, 0))
+            button("新增角色", Color.rgb(76, 175, 80)) { showAddRoleDialog() },
+            button("搜索", Color.rgb(33, 150, 243)) { showSearchDialog() },
+            button("刷新", Color.rgb(96, 125, 139)) {
+                currentSnapshot = ScriptBrain.roleManagerSnapshot(context)
+                markedIndices.clear()
+                selectedIndex = -1
+                renderRoleList(currentSnapshot, listContainer, roleLabel, markedIndices, selectedIndex, filterKeyword) {
+                    selectedIndex = it
+                    showRoleOperationDialog(it)
+                }
+            },
+            button("管理书籍", Color.rgb(255, 152, 0)) {
+                showTextDialog(
+                    "角色文件",
+                    buildString {
+                        appendLine("当前书：${currentSnapshot.bookName}")
+                        appendLine("目录：${currentSnapshot.storagePath}")
+                        appendLine()
+                        appendLine("已同步文件：")
+                        currentSnapshot.files.forEach { appendLine(it) }
+                    }
+                )
+            }
         )
         addButtonRow(
-            listOf("执行合并", "更换发音人", "释放角色", "删除角色"),
-            listOf(Color.rgb(76, 175, 80), Color.rgb(156, 39, 176), Color.rgb(33, 150, 243), Color.rgb(244, 67, 54))
+            button("执行合并", Color.rgb(76, 175, 80)) {
+                val target = ensureTargetIndex()
+                if (target >= 0) markedIndices.add(target)
+                runRoleAction { ScriptBrain.mergeRoleManagerCharacters(context, target, selectedMarks()) }
+            },
+            button("更换发音人", Color.rgb(156, 39, 176)) {
+                chooseVoice("更换发音人") { voice ->
+                    runRoleAction { ScriptBrain.fixRoleManagerVoice(context, selectedMarks(), voice) }
+                }
+            },
+            button("释放角色", Color.rgb(33, 150, 243)) {
+                runRoleAction { ScriptBrain.releaseRoleManagerCharacters(context, selectedMarks()) }
+            },
+            button("删除角色", Color.rgb(244, 67, 54)) {
+                runRoleAction { ScriptBrain.deleteRoleManagerCharacters(context, selectedMarks()) }
+            }
+        )
+        addButtonRow(
+            button("固定当前发音人", Color.rgb(123, 31, 162)) {
+                runRoleAction { ScriptBrain.fixRoleManagerCurrentVoice(context, selectedMarks()) }
+            },
+            button("固定标签池", Color.rgb(103, 58, 183)) {
+                val target = ensureTargetIndex()
+                chooseTag("固定标签池") { tag ->
+                    runRoleAction { ScriptBrain.fixRoleManagerTag(context, target, tag) }
+                }
+            },
+            button("备份", Color.rgb(121, 85, 72)) {
+                runRoleAction { ScriptBrain.backupRoleManagerCharacters(context) }
+            },
+            button("恢复", Color.rgb(0, 150, 136)) {
+                runRoleAction { ScriptBrain.restoreRoleManagerCharacters(context) }
+            }
         )
 
         val bookRow = LinearLayout(context).apply {
@@ -798,59 +1034,154 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
-        bookRow.addView(button("刷新", Color.rgb(96, 125, 139)).apply {
+        bookRow.addView(button("全选", Color.rgb(96, 125, 139)) {
+            if (markedIndices.size >= currentSnapshot.characters.size && currentSnapshot.characters.isNotEmpty()) {
+                markedIndices.clear()
+            } else {
+                markedIndices.clear()
+                markedIndices.addAll(currentSnapshot.characters.indices)
+            }
+            selectedIndex = markedIndices.firstOrNull() ?: -1
+            renderRoleList(currentSnapshot, listContainer, roleLabel, markedIndices, selectedIndex, filterKeyword) {
+                selectedIndex = it
+                showRoleOperationDialog(it)
+            }
+        }.apply {
             layoutParams = LinearLayout.LayoutParams(70.dpToPx(), 34.dpToPx()).apply {
                 setMargins(4.dpToPx(), 0, 0, 0)
             }
         })
-        bookRow.addView(button("搜索", Color.rgb(33, 150, 243)).apply {
-            layoutParams = LinearLayout.LayoutParams(70.dpToPx(), 34.dpToPx()).apply {
-                setMargins(4.dpToPx(), 0, 0, 0)
-            }
-        })
-        container.addView(bookRow)
+        root.addView(bookRow)
 
-        addText("角色列表（${snapshot.characters.size}）", 15f, true)
+        root.addView(roleLabel.apply {
+            setPadding(2.dpToPx(), 8.dpToPx(), 2.dpToPx(), 6.dpToPx())
+        })
+        root.addView(ScrollView(context).apply {
+            isFillViewport = false
+            addView(listContainer)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                360.dpToPx()
+            )
+        })
+        renderRoleList(currentSnapshot, listContainer, roleLabel, markedIndices, selectedIndex, filterKeyword) {
+            selectedIndex = it
+            showRoleOperationDialog(it)
+        }
+        return root
+    }
+
+    private fun renderRoleList(
+        snapshot: ScriptBrain.RoleManagerSnapshot,
+        container: LinearLayout,
+        label: TextView,
+        markedIndices: MutableSet<Int>,
+        selectedIndex: Int,
+        filterKeyword: String,
+        onLongClick: (Int) -> Unit,
+    ) {
+        val context = requireContext()
+        container.removeAllViews()
+        val visibleCharacters = snapshot.characters.withIndex().filter { (_, character) ->
+            filterKeyword.isBlank()
+                    || character.name.contains(filterKeyword, ignoreCase = true)
+                    || character.aliases.contains(filterKeyword, ignoreCase = true)
+                    || character.voiceTag.contains(filterKeyword, ignoreCase = true)
+        }
+        label.text = buildString {
+            append("角色列表（已标记 ${markedIndices.size} / ${snapshot.characters.size}）")
+            if (filterKeyword.isNotBlank()) append("  搜索：$filterKeyword")
+        }
         if (snapshot.characters.isEmpty()) {
-            addText("当前书还没有角色记录。先点“分析规则”运行当前章，分析结果会自动写入这里。", 15f)
-        } else {
-            snapshot.characters.forEachIndexed { index, character ->
-                val selected = index == 0
-                val row = LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    setPadding(10.dpToPx(), 8.dpToPx(), 6.dpToPx(), 8.dpToPx())
-                    background = GradientDrawable().apply {
-                        cornerRadius = 4.dpToPx().toFloat()
-                        setColor(if (selected) Color.rgb(255, 249, 190) else Color.TRANSPARENT)
-                        if (!selected) setStroke(1.dpToPx(), Color.rgb(232, 232, 232))
+            container.addView(TextView(context).apply {
+                text = "当前书还没有角色记录。先点“分析规则”运行当前章，分析结果会自动写入这里。"
+                textSize = 14f
+                setTextColor(Color.rgb(70, 70, 70))
+                setPadding(2.dpToPx(), 8.dpToPx(), 2.dpToPx(), 8.dpToPx())
+            })
+            return
+        }
+        if (visibleCharacters.isEmpty()) {
+            container.addView(TextView(context).apply {
+                text = "没有匹配角色。"
+                textSize = 14f
+                setTextColor(Color.rgb(70, 70, 70))
+                setPadding(2.dpToPx(), 8.dpToPx(), 2.dpToPx(), 8.dpToPx())
+            })
+            return
+        }
+        visibleCharacters.forEach { indexed ->
+            val index = indexed.index
+            val character = indexed.value
+            val marked = index in markedIndices
+            val selected = index == selectedIndex
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(8.dpToPx(), 7.dpToPx(), 6.dpToPx(), 7.dpToPx())
+                background = GradientDrawable().apply {
+                    cornerRadius = 4.dpToPx().toFloat()
+                    setColor(
+                        when {
+                            selected -> Color.rgb(255, 249, 190)
+                            marked -> Color.rgb(245, 248, 255)
+                            else -> Color.TRANSPARENT
+                        }
+                    )
+                    if (!selected) setStroke(1.dpToPx(), Color.rgb(232, 232, 232))
+                }
+            }
+            val checkBox = CheckBox(context).apply {
+                isChecked = marked
+                minWidth = 0
+                minimumWidth = 0
+                setPadding(0, 0, 4.dpToPx(), 0)
+            }
+            val textView = TextView(context).apply {
+                text = buildString {
+                    append(character.name)
+                    append("  【")
+                    append(character.voiceTag)
+                    append("-")
+                    append(character.gender)
+                    append("-")
+                    append(character.ageType)
+                    append("】")
+                    if (character.aliases.isNotBlank() && character.aliases != character.name) {
+                        append("\n别名：")
+                        append(character.aliases)
                     }
                 }
-                row.addView(TextView(context).apply {
-                    text = "${character.name}    【${character.voiceTag}-${character.gender}-${character.ageType}】"
-                    textSize = 14f
-                    setTextColor(if (selected) Color.rgb(210, 90, 30) else Color.rgb(35, 35, 35))
-                    if (selected) typeface = Typeface.DEFAULT_BOLD
-                    includeFontPadding = false
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                row.addView(RadioButton(context).apply {
-                    isChecked = selected
-                    isClickable = false
-                    isFocusable = false
-                })
-                container.addView(row)
+                textSize = 13f
+                setTextColor(if (selected) Color.rgb(210, 90, 30) else Color.rgb(35, 35, 35))
+                if (selected) typeface = Typeface.DEFAULT_BOLD
+                includeFontPadding = false
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
+            fun toggleMark() {
+                if (index in markedIndices) {
+                    markedIndices.remove(index)
+                } else {
+                    markedIndices.add(index)
+                }
+                renderRoleList(snapshot, container, label, markedIndices, index, filterKeyword, onLongClick)
+            }
+            checkBox.setOnClickListener { toggleMark() }
+            row.setOnClickListener { toggleMark() }
+            row.setOnLongClickListener {
+                markedIndices.add(index)
+                renderRoleList(snapshot, container, label, markedIndices, index, filterKeyword, onLongClick)
+                onLongClick(index)
+                true
+            }
+            row.addView(checkBox)
+            row.addView(textView)
+            container.addView(row, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 4.dpToPx()
+            })
         }
-
-        addButtonRow(
-            listOf("执行合并", "释放角色", "回退一步"),
-            listOf(Color.rgb(76, 175, 80), Color.rgb(33, 150, 243), Color.rgb(255, 152, 0))
-        )
-        addButtonRow(
-            listOf("固定发音人", "固定当前发音人", "固定性别年龄", "删除角色"),
-            listOf(Color.rgb(156, 39, 176), Color.rgb(123, 31, 162), Color.rgb(103, 58, 183), Color.rgb(244, 67, 54))
-        )
-        return ScrollView(context).apply { addView(container) }
     }
 
     private fun scriptCharacterListView(analysis: ScriptBrain.Analysis): ScrollView {
@@ -1023,22 +1354,49 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
         addText("模块列表：", 15f, true)
         modules.forEachIndexed { index, module ->
-            addText(
-                "${if (module.enabled) "[开]" else "[关]"} ${if (module.aiEnabled) "[AI]" else "[本地]"} ${(index + 1).toString().padStart(2, '0')} ${module.name}",
-                14f,
-                true
-            )
+            val moduleRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 5.dpToPx(), 0, 2.dpToPx())
+            }
+            moduleRow.addView(CheckBox(context).apply {
+                text = "开"
+                textSize = 12f
+                isChecked = module.enabled
+                includeFontPadding = false
+                minWidth = 0
+                minimumWidth = 0
+                setPadding(0, 0, 2.dpToPx(), 0)
+                setOnClickListener {
+                    ScriptBrain.setAnalysisModuleEnabled(context, module.id, isChecked)
+                    dialog?.dismiss()
+                    showScriptRules()
+                }
+            }, LinearLayout.LayoutParams(54.dpToPx(), LinearLayout.LayoutParams.WRAP_CONTENT))
+            moduleRow.addView(CheckBox(context).apply {
+                text = "AI"
+                textSize = 12f
+                isChecked = module.aiEnabled
+                includeFontPadding = false
+                minWidth = 0
+                minimumWidth = 0
+                setPadding(0, 0, 2.dpToPx(), 0)
+                setOnClickListener {
+                    ScriptBrain.upsertAnalysisModule(context, module.copy(aiEnabled = isChecked))
+                    dialog?.dismiss()
+                    showScriptRules()
+                }
+            }, LinearLayout.LayoutParams(56.dpToPx(), LinearLayout.LayoutParams.WRAP_CONTENT))
+            moduleRow.addView(TextView(context).apply {
+                text = "${(index + 1).toString().padStart(2, '0')} ${module.name}"
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                includeFontPadding = false
+                setPadding(4.dpToPx(), 7.dpToPx(), 4.dpToPx(), 4.dpToPx())
+                setTextColor(if (module.enabled) Color.rgb(35, 35, 35) else Color.rgb(130, 130, 130))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            container.addView(moduleRow)
             addButtonRow(
-                Button(context).compact(if (module.enabled) "关闭" else "开启") {
-                    ScriptBrain.setAnalysisModuleEnabled(context, module.id, !module.enabled)
-                    dialog?.dismiss()
-                    showScriptRules()
-                },
-                Button(context).compact(if (module.aiEnabled) "AI关" else "AI开") {
-                    ScriptBrain.upsertAnalysisModule(context, module.copy(aiEnabled = !module.aiEnabled))
-                    dialog?.dismiss()
-                    showScriptRules()
-                },
                 Button(context).compact("编辑") {
                     dialog?.dismiss()
                     showEditAnalysisModule(module)
@@ -1047,8 +1405,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                     dialog?.dismiss()
                     testAnalysisModule(module)
                 },
-            )
-            addButtonRow(
                 Button(context).compact("上移") {
                     ScriptBrain.moveAnalysisModule(context, module.id, -1)
                     dialog?.dismiss()

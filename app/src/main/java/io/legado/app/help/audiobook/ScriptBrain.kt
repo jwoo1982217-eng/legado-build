@@ -29,6 +29,8 @@ object ScriptBrain {
         val gender: String,
         val ageType: String,
         val voiceTag: String,
+        val aliases: String = name,
+        val usageCount: Int = 100,
     )
 
     data class ScriptLine(
@@ -109,6 +111,12 @@ object ScriptBrain {
         val storagePath: String,
         val characters: List<ScriptCharacter>,
         val files: List<String>,
+    )
+
+    data class RoleManagerActionResult(
+        val success: Boolean,
+        val message: String,
+        val snapshot: RoleManagerSnapshot,
     )
 
     data class AnalysisModelProfile(
@@ -915,21 +923,291 @@ object ScriptBrain {
     }
 
     fun roleManagerSnapshot(context: Context): RoleManagerSnapshot {
-        val analysis = analyzeCurrentChapter(context.applicationContext)
-        val dir = scriptDir(context.applicationContext, analysis.bookName).apply { mkdirs() }
-        val characters = readRoleManagerCharacters(dir).ifEmpty { analysis.characters }
+        val payload = currentChapterPayload()
+        val dir = scriptDir(context.applicationContext, payload.bookName).apply { mkdirs() }
+        val characters = readRoleManagerCharacters(dir)
         val info = builtInRoleManagerInfo(context.applicationContext)
         return RoleManagerSnapshot(
-            bookName = analysis.bookName,
+            bookName = payload.bookName,
             pluginName = info?.name ?: "角色管理插件",
             pluginAuthor = info?.author ?: "未知",
             pluginVersion = info?.version ?: "未标注",
             storagePath = dir.absolutePath,
             characters = characters,
             files = ROLE_MANAGER_FILES
-                .map { it.replace("<book>", analysis.bookName.safeFileName()) }
+                .map { it.replace("<book>", payload.bookName.safeFileName()) }
                 .filter { File(dir, it).exists() }
         )
+    }
+
+    fun roleManagerVoiceOptions(context: Context): List<String> {
+        val snapshot = roleManagerSnapshot(context)
+        val dir = scriptDir(context.applicationContext, snapshot.bookName).apply { mkdirs() }
+        val fileVoices = runCatching {
+            val file = File(dir, "fayinren.json")
+            if (!file.exists()) emptyList() else JSONArray(file.readText(Charsets.UTF_8)).let { array ->
+                buildList {
+                    for (index in 0 until array.length()) {
+                        val voice = array.optString(index).trim()
+                        if (voice.isNotBlank()) add(voice)
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+        val characterVoices = snapshot.characters.map { it.voiceTag }
+        return (fileVoices + characterVoices + defaultVoiceOptions())
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != "待分配" }
+            .distinct()
+    }
+
+    fun roleManagerTagOptions(): List<String> {
+        val prefixes = listOf(
+            "主角 男主",
+            "主角 女主",
+            "女/少女",
+            "男/少年",
+            "女/女青年",
+            "男/男青年",
+            "女/女中年",
+            "男/男中年",
+            "女/女老年",
+            "男/男老年",
+            "女/女童",
+            "男/男童",
+            "男/特殊",
+            "女/特殊",
+        )
+        return prefixes.flatMap { prefix ->
+            (1..20).map { index -> "$prefix${index.toString().padStart(2, '0')}" }
+        } + listOf("【】括号发音人", "「」括号发音人", "「对话旁白」")
+    }
+
+    fun addRoleManagerCharacter(
+        context: Context,
+        name: String,
+        aliases: String,
+        voiceTag: String,
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) return roleManagerResult(context, false, "角色名不能为空")
+        val characters = snapshot.characters.toMutableList()
+        if (characters.any { it.name == cleanName }) {
+            return roleManagerResult(context, false, "角色已存在：$cleanName")
+        }
+        val voice = voiceTag.trim().ifBlank { allocateRoleManagerVoice(characters, "待分配") }
+        val voiceInfo = inferCharacterFromVoiceTag(voice)
+        characters.add(
+            0,
+            ScriptCharacter(
+                name = cleanName,
+                gender = voiceInfo.first.ifBlank { "待定" },
+                ageType = voiceInfo.second.ifBlank { "青年" },
+                voiceTag = voice,
+                aliases = aliases.trim().ifBlank { cleanName },
+                usageCount = 100,
+            )
+        )
+        writeRoleManagerCharacters(context, snapshot.bookName, characters)
+        return roleManagerResult(context, true, "新增角色成功：$cleanName")
+    }
+
+    fun mergeRoleManagerCharacters(
+        context: Context,
+        targetIndex: Int,
+        markedIndices: Collection<Int>,
+        newVoiceTag: String = "",
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val characters = snapshot.characters.toMutableList()
+        if (targetIndex !in characters.indices) return roleManagerResult(context, false, "请先选中目标角色")
+        val marks = markedIndices.filter { it in characters.indices }.distinct()
+        if (marks.isEmpty() || targetIndex !in marks) return roleManagerResult(context, false, "请标记并选中目标角色")
+        val target = characters[targetIndex]
+        val aliases = linkedSetOf<String>()
+        fun addAlias(text: String) {
+            text.split("|").map { it.trim() }.filter { it.isNotBlank() }.forEach { aliases.add(it) }
+        }
+        addAlias(target.name)
+        addAlias(target.aliases)
+        marks.forEach { index ->
+            val character = characters[index]
+            addAlias(character.name)
+            addAlias(character.aliases)
+        }
+        val finalVoice = if (newVoiceTag.isNotBlank() && newVoiceTag != "follow_target") {
+            newVoiceTag
+        } else {
+            target.voiceTag
+        }
+        val merged = target.copy(
+            voiceTag = finalVoice,
+            aliases = aliases.joinToString("|"),
+            usageCount = if (finalVoice.isLockedVoiceTag()) 100 else target.usageCount,
+        )
+        val remaining = characters.filterIndexed { index, _ -> index !in marks || index == targetIndex }
+            .filterNot { it.name == merged.name }
+        writeRoleManagerCharacters(context, snapshot.bookName, listOf(merged) + remaining)
+        return roleManagerResult(context, true, "合并成功，目标角色已置顶")
+    }
+
+    fun releaseRoleManagerCharacters(
+        context: Context,
+        markedIndices: Collection<Int>,
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val characters = snapshot.characters.toMutableList()
+        val marks = markedIndices.filter { it in characters.indices }.distinct().sortedDescending()
+        if (marks.isEmpty()) return roleManagerResult(context, false, "请先标记至少一个角色")
+        marks.forEach { index ->
+            val character = characters[index]
+            val names = character.aliases
+                .split("|")
+                .map { it.trim() }
+                .filter { it.isNotBlank() && !it.equals(character.name, ignoreCase = true) }
+                .filterNot { alias -> characters.any { it.name.equals(alias, ignoreCase = true) } }
+            characters[index] = character.copy(aliases = character.name)
+            names.reversed().forEach { alias ->
+                characters.add(
+                    index + 1,
+                    ScriptCharacter(alias, "待定", "青年", "待分配", aliases = alias, usageCount = 0)
+                )
+            }
+        }
+        writeRoleManagerCharacters(context, snapshot.bookName, characters)
+        return roleManagerResult(context, true, "角色释放成功")
+    }
+
+    fun deleteRoleManagerCharacters(
+        context: Context,
+        markedIndices: Collection<Int>,
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val marks = markedIndices.filter { it in snapshot.characters.indices }.toSet()
+        if (marks.isEmpty()) return roleManagerResult(context, false, "请先标记至少一个角色")
+        val characters = snapshot.characters.filterIndexed { index, _ -> index !in marks }
+        writeRoleManagerCharacters(context, snapshot.bookName, characters)
+        return roleManagerResult(context, true, "已删除角色")
+    }
+
+    fun fixRoleManagerVoice(
+        context: Context,
+        markedIndices: Collection<Int>,
+        voiceTag: String,
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val voice = voiceTag.trim()
+        if (voice.isBlank()) return roleManagerResult(context, false, "发音人不能为空")
+        val marks = markedIndices.filter { it in snapshot.characters.indices }.toSet()
+        if (marks.isEmpty()) return roleManagerResult(context, false, "请先标记至少一个角色")
+        val voiceInfo = inferCharacterFromVoiceTag(voice)
+        val characters = snapshot.characters.mapIndexed { index, character ->
+            if (index !in marks) {
+                character
+            } else {
+                character.copy(
+                    gender = voiceInfo.first.ifBlank { character.gender },
+                    ageType = voiceInfo.second.ifBlank { character.ageType },
+                    voiceTag = voice,
+                    usageCount = 100,
+                )
+            }
+        }
+        writeRoleManagerCharacters(context, snapshot.bookName, characters)
+        return roleManagerResult(context, true, "已固定 ${marks.size} 个角色的发音人")
+    }
+
+    fun fixRoleManagerCurrentVoice(
+        context: Context,
+        markedIndices: Collection<Int>,
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val marks = markedIndices.filter { it in snapshot.characters.indices }.toSet()
+        if (marks.isEmpty()) return roleManagerResult(context, false, "请先标记至少一个角色")
+        val characters = snapshot.characters.mapIndexed { index, character ->
+            if (index in marks) character.copy(usageCount = 100) else character
+        }
+        writeRoleManagerCharacters(context, snapshot.bookName, characters)
+        return roleManagerResult(context, true, "已固定 ${marks.size} 个角色自身当前发音人")
+    }
+
+    fun fixRoleManagerTag(
+        context: Context,
+        targetIndex: Int,
+        tag: String,
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        if (targetIndex !in snapshot.characters.indices) return roleManagerResult(context, false, "请先选中一个角色")
+        val parsed = parseRoleManagerTag(tag)
+        val characters = snapshot.characters.mapIndexed { index, character ->
+            if (index == targetIndex) {
+                character.copy(
+                    gender = parsed.first,
+                    ageType = parsed.second,
+                    voiceTag = parsed.third,
+                    usageCount = if (parsed.second.contains("主")) 100 else 50,
+                )
+            } else {
+                character
+            }
+        }
+        writeRoleManagerCharacters(context, snapshot.bookName, characters)
+        return roleManagerResult(context, true, "已固定标签池：$tag")
+    }
+
+    fun backupRoleManagerCharacters(context: Context): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val dir = scriptDir(context.applicationContext, snapshot.bookName).apply { mkdirs() }
+        val text = snapshot.characters.toRoleManagerJson().toString(2)
+        File(dir, "characterRecords_backup.json").writeText(text, Charsets.UTF_8)
+        return roleManagerResult(context, true, "角色列表已备份")
+    }
+
+    fun restoreRoleManagerCharacters(context: Context): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        val dir = scriptDir(context.applicationContext, snapshot.bookName).apply { mkdirs() }
+        val file = File(dir, "characterRecords_backup.json")
+        if (!file.exists()) return roleManagerResult(context, false, "没有备份")
+        val array = runCatching { JSONArray(file.readText(Charsets.UTF_8)) }.getOrNull()
+            ?: return roleManagerResult(context, false, "备份文件解析失败")
+        writeRoleManagerCharacters(context, snapshot.bookName, parseCharacterArray(array))
+        return roleManagerResult(context, true, "已恢复角色备份")
+    }
+
+    fun updateRoleManagerCharacter(
+        context: Context,
+        targetIndex: Int,
+        name: String,
+        aliases: String,
+        voiceTag: String,
+    ): RoleManagerActionResult {
+        val snapshot = roleManagerSnapshot(context)
+        if (targetIndex !in snapshot.characters.indices) return roleManagerResult(context, false, "请先选中一个角色")
+        val cleanName = name.trim()
+        if (cleanName.isBlank()) return roleManagerResult(context, false, "角色名不能为空")
+        val duplicate = snapshot.characters
+            .filterIndexed { index, _ -> index != targetIndex }
+            .any { it.name == cleanName }
+        if (duplicate) return roleManagerResult(context, false, "角色已存在：$cleanName")
+        val voice = voiceTag.trim().ifBlank { snapshot.characters[targetIndex].voiceTag }
+        val voiceInfo = inferCharacterFromVoiceTag(voice)
+        val characters = snapshot.characters.mapIndexed { index, character ->
+            if (index == targetIndex) {
+                character.copy(
+                    name = cleanName,
+                    aliases = aliases.trim().ifBlank { cleanName },
+                    gender = voiceInfo.first.ifBlank { character.gender },
+                    ageType = voiceInfo.second.ifBlank { character.ageType },
+                    voiceTag = voice,
+                    usageCount = if (voice.isLockedVoiceTag()) 100 else character.usageCount,
+                )
+            } else {
+                character
+            }
+        }
+        writeRoleManagerCharacters(context, snapshot.bookName, characters)
+        return roleManagerResult(context, true, "角色已更新：$cleanName")
     }
 
     fun clearImportedRule(context: Context) {
@@ -1298,6 +1576,7 @@ object ScriptBrain {
             .ifBlank { fallbackName }
             .trim()
         if (name.isBlank() || name == NARRATOR_ROLE || name.isUnknownRoleName()) return null
+        val aliases = firstText(item, "aliases", "alias", "otherNames").ifBlank { name }
         val gender = firstText(item, "gender").ifBlank { "待定" }
         val age = firstText(item, "ageType", "age", "genderAge").ifBlank { voicePoolPrefix("", gender) }
         val voice = firstText(item, "voiceTag", "voice", "displayVoice", "actualVoice", "selectedVoice")
@@ -1308,6 +1587,8 @@ object ScriptBrain {
             gender = voiceInfo.first.ifBlank { gender },
             ageType = voiceInfo.second.ifBlank { age.toRoleManagerAge(gender) },
             voiceTag = normalizedVoice.ifBlank { "待分配" },
+            aliases = aliases,
+            usageCount = item.optInt("usageCount", if (normalizedVoice.isLockedVoiceTag()) 100 else 0),
         )
     }
 
@@ -1646,9 +1927,11 @@ object ScriptBrain {
                 array.put(
                     JSONObject()
                         .put("name", character.name)
+                        .put("aliases", character.aliases)
                         .put("gender", character.gender)
                         .put("ageType", character.ageType)
                         .put("voiceTag", character.voiceTag)
+                        .put("usageCount", character.usageCount)
                 )
             }
         }
@@ -1706,13 +1989,13 @@ object ScriptBrain {
                 array.put(
                     JSONObject()
                         .put("name", character.name)
-                        .put("aliases", character.name)
+                        .put("aliases", character.aliases.ifBlank { character.name })
                         .put("gender", character.gender)
                         .put("age", character.ageType.toRoleManagerAge(character.gender))
                         .put("ageType", character.ageType)
                         .put("voice", character.voiceTag)
                         .put("voiceTag", character.voiceTag)
-                        .put("usageCount", 100)
+                        .put("usageCount", character.usageCount)
                         .put("source", "内置分析模式")
                 )
             }
@@ -1787,9 +2070,119 @@ object ScriptBrain {
                 val gender = firstText(item, "gender").ifBlank { "待定" }
                 val age = firstText(item, "ageType", "age").ifBlank { "青年" }
                 val voice = firstText(item, "voiceTag", "voice", "displayVoice").ifBlank { "待分配" }
-                add(ScriptCharacter(name, gender, age, voice))
+                add(
+                    ScriptCharacter(
+                        name = name,
+                        gender = gender,
+                        ageType = age,
+                        voiceTag = voice,
+                        aliases = firstText(item, "aliases", "alias", "otherNames").ifBlank { name },
+                        usageCount = item.optInt("usageCount", if (voice.isLockedVoiceTag()) 100 else 0),
+                    )
+                )
             }
         }
+    }
+
+    private fun writeRoleManagerCharacters(
+        context: Context,
+        bookName: String,
+        characters: List<ScriptCharacter>,
+    ) {
+        val normalizedBookName = bookName.ifBlank { "默认" }
+        val dir = scriptDir(context.applicationContext, normalizedBookName).apply { mkdirs() }
+        val normalizedCharacters = characters
+            .filter { it.name.isNotBlank() && it.name != NARRATOR_ROLE && !it.name.isUnknownRoleName() }
+            .distinctBy { it.name }
+        val records = normalizedCharacters.toRoleManagerJson()
+        val bookFileName = "shuming.${normalizedBookName.safeFileName()}.json"
+        File(dir, "characterRecords.json").writeText(records.toString(2), Charsets.UTF_8)
+        File(dir, bookFileName).writeText(records.toString(2), Charsets.UTF_8)
+        File(dir, "gengxin.json").writeText(records.toString(2), Charsets.UTF_8)
+        File(dir, "cunfang.txt").writeText(normalizedBookName, Charsets.UTF_8)
+        File(dir, "liebiao.json").writeText(JSONArray().put(normalizedBookName).toString(2), Charsets.UTF_8)
+        File(dir, "fayinren.json").writeText(
+            JSONArray().also { array ->
+                normalizedCharacters
+                    .map { it.voiceTag }
+                    .filter { it.isNotBlank() && it != "待分配" }
+                    .distinct()
+                    .forEach { array.put(it) }
+            }.toString(2),
+            Charsets.UTF_8
+        )
+    }
+
+    private fun roleManagerResult(
+        context: Context,
+        success: Boolean,
+        message: String,
+    ): RoleManagerActionResult {
+        return RoleManagerActionResult(
+            success = success,
+            message = message,
+            snapshot = roleManagerSnapshot(context.applicationContext),
+        )
+    }
+
+    private fun defaultVoiceOptions(): List<String> {
+        val prefixes = listOf(
+            "主角 男主" to 20,
+            "主角 女主" to 20,
+            "女/少女" to 200,
+            "男/少年" to 200,
+            "女/女青年" to 300,
+            "男/男青年" to 300,
+            "女/女中年" to 200,
+            "男/男中年" to 200,
+            "女/女老年" to 200,
+            "男/男老年" to 200,
+            "女/女童" to 200,
+            "男/男童" to 200,
+            "男/特殊" to 20,
+            "女/特殊" to 20,
+        )
+        return buildList {
+            prefixes.forEach { (prefix, count) ->
+                val limit = minOf(count, 30)
+                for (index in 1..limit) {
+                    add("$prefix${index.toString().padStart(2, '0')}")
+                }
+            }
+            add("【】括号发音人")
+            add("「」括号发音人")
+            add("「对话旁白」")
+        }
+    }
+
+    private fun allocateRoleManagerVoice(
+        characters: List<ScriptCharacter>,
+        suggestedVoice: String,
+    ): String {
+        val occupied = characters
+            .map { it.voiceTag }
+            .filter { it.isLockedVoiceTag() }
+            .toMutableSet()
+        val suggested = normalizeVoiceTag(suggestedVoice, "男/男青年", "男")
+        if (suggested.isLockedVoiceTag() && suggested !in occupied) return suggested
+        return defaultVoiceOptions().firstOrNull { it.isLockedVoiceTag() && it !in occupied }
+            ?: suggested.ifBlank { "男/男青年01" }
+    }
+
+    private fun parseRoleManagerTag(tag: String): Triple<String, String, String> {
+        val value = tag.trim()
+        if (value.isBlank()) return Triple("待定", "男/男青年", "男/男青年01")
+        val voiceTag = normalizeVoiceTag(value, value, if (value.contains("女")) "女" else "男")
+        val info = inferCharacterFromVoiceTag(voiceTag)
+        val gender = info.first.ifBlank {
+            when {
+                value.contains("女") -> "女"
+                value.contains("男") -> "男"
+                else -> "待定"
+            }
+        }
+        val age = info.second.ifBlank { value.toRoleManagerAge(gender) }
+        return Triple(gender, age, voiceTag.ifBlank { value })
     }
 
     private fun String.toRoleManagerAge(gender: String): String {
@@ -2262,7 +2655,7 @@ object ScriptBrain {
     private val femaleKeywords = listOf("女", "娘", "妹", "姐", "姑", "婆", "姨", "母", "月", "雪", "柔", "婉")
     private val maleKeywords = listOf("男", "哥", "叔", "伯", "父", "爷", "掌柜", "凡", "轩", "辰", "峰")
     private val childKeywords = listOf("小", "童", "孩", "娃")
-    private const val ROLE_MANAGER_PLUGIN_ASSET = "defaultData/scriptBrain/role_manager_plugin_v2667.json"
+    private const val ROLE_MANAGER_PLUGIN_ASSET = "defaultData/scriptBrain/role_manager_plugin_v278_slim.json"
     private val ROLE_MANAGER_FILES = listOf(
         "characterRecords.json",
         "shuming.<book>.json",
