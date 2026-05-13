@@ -181,13 +181,22 @@ object LocalAudiobookFileGenerator {
         chapter: TtsServerDbBridge.AudiobookChapter
     ): ChapterPlaybackAudio? {
         val dir = chapterDir(context.applicationContext, bookName, chapter)
-        val manifestFile = File(dir, "manifest.json")
-            .takeIf { it.exists() && it.length() > 0 }
+        val baseName = chapterFileBaseName(chapter)
+        val bookDir = bookDir(context.applicationContext, bookName)
+        val manifestFile = listOf(
+            File(dir, "manifest.json"),
+            File(bookDir, "$baseName.json")
+        ).firstOrNull { it.exists() && it.length() > 0 }
             ?: return null
         return runCatching {
             val json = JSONObject(manifestFile.readText(Charsets.UTF_8))
             if (json.optString("status") != "ready") return null
-            val file = File(json.optString("path"))
+            val file = resolveChapterAudioFile(
+                dir = dir,
+                bookDir = bookDir,
+                baseName = baseName,
+                rawPath = json.optString("path")
+            ) ?: return null
             if (!file.exists() || file.length() <= 0) return null
             val format = json.optString("format").ifBlank { file.chapterAudioFormat() }
             if (
@@ -198,25 +207,59 @@ object LocalAudiobookFileGenerator {
                 return null
             }
             val items = json.optJSONArray("items") ?: return null
-            val timeline = buildList {
-                for (index in 0 until items.length()) {
-                    val item = items.optJSONObject(index) ?: continue
-                    val startMs = item.optLong("startMs", -1L)
-                    val endMs = item.optLong("endMs", -1L)
-                    if (startMs < 0 || endMs <= startMs) continue
-                    add(
-                        TimelineItem(
-                            index = item.optInt("index", index),
-                            text = item.optString("text"),
-                            startMs = startMs,
-                            endMs = endMs
-                        )
-                    )
-                }
-            }
+            val timeline = buildPlaybackTimeline(items)
             if (timeline.isEmpty()) return null
             ChapterPlaybackAudio(file, format, timeline)
         }.getOrNull()
+    }
+
+    private fun resolveChapterAudioFile(
+        dir: File,
+        bookDir: File,
+        baseName: String,
+        rawPath: String,
+    ): File? {
+        rawPath.takeIf { it.isNotBlank() }
+            ?.let { File(it) }
+            ?.takeIf { it.exists() && it.length() > 0 }
+            ?.let { return it }
+        return listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio")
+            .asSequence()
+            .flatMap { extension ->
+                sequenceOf(
+                    File(dir, "chapter.$extension"),
+                    File(bookDir, "$baseName.$extension")
+                )
+            }
+            .firstOrNull { it.exists() && it.length() > 0 }
+    }
+
+    private fun buildPlaybackTimeline(items: JSONArray): List<TimelineItem> {
+        val timeline = arrayListOf<TimelineItem>()
+        var cursorMs = 0L
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            val startMs = item.optLong("startMs", -1L)
+            val endMs = item.optLong("endMs", -1L)
+            val durationMs = item.optLong("durationMs", -1L)
+            val resolvedStart = if (startMs >= 0) startMs else cursorMs
+            val resolvedEnd = when {
+                endMs > resolvedStart -> endMs
+                durationMs > 0 -> resolvedStart + durationMs
+                else -> -1L
+            }
+            if (resolvedEnd <= resolvedStart) continue
+            timeline.add(
+                TimelineItem(
+                    index = item.optInt("index", index),
+                    text = item.optString("text"),
+                    startMs = resolvedStart,
+                    endMs = resolvedEnd
+                )
+            )
+            cursorMs = resolvedEnd
+        }
+        return timeline
     }
 
     fun clearBookAudioCache(context: Context, bookName: String): Boolean {
