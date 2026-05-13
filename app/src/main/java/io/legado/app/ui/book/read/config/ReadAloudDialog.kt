@@ -40,7 +40,6 @@ import io.legado.app.utils.getPrefBoolean
 import io.legado.app.utils.StringUtils
 import io.legado.app.utils.dpToPx
 import io.legado.app.utils.fromJsonObject
-import io.legado.app.utils.gone
 import io.legado.app.utils.observeEvent
 import io.legado.app.utils.toastOnUi
 import io.legado.app.utils.viewbindingdelegate.viewBinding
@@ -332,11 +331,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun upScriptBrainToolsVisible(enabled: Boolean) {
-        if (enabled) {
-            binding.layoutScriptBrainTools.visible()
-        } else {
-            binding.layoutScriptBrainTools.gone()
-        }
+        binding.layoutScriptBrainTools.visibility = if (enabled) View.VISIBLE else View.GONE
+        binding.layoutScriptBrainTools.requestLayout()
     }
 
     private fun upPlayState() {
