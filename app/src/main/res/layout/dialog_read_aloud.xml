@@ -283,7 +283,10 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:contentDescription="后台预缓存"
-            android:text="后台预缓存"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="预缓存"
+            android:textSize="12sp"
             tools:ignore="TouchTargetSizeCheck" />
 
         <io.legado.app.lib.theme.view.ThemeSwitch
@@ -293,20 +296,28 @@
             android:layout_marginStart="6dp"
             android:layout_weight="1"
             android:contentDescription="生成有声书"
-            android:text="生成有声书"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="有声书"
+            android:textSize="12sp"
             tools:ignore="HardcodedText,TouchTargetSizeCheck" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_audiobook_status"
             style="@style/Widget.Material3Expressive.Button.TonalButton"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_marginStart="6dp"
             android:layout_weight="1"
             android:contentDescription="章节列表"
+            android:ellipsize="end"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:maxLines="1"
+            android:minHeight="0dp"
             android:minWidth="0dp"
             android:text="章节列表"
-            app:icon="@drawable/ic_history"
+            android:textSize="12sp"
             tools:ignore="HardcodedText" />
 
     </LinearLayout>

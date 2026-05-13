@@ -1,6 +1,7 @@
 package io.legado.app.ui.book.read
 
 import android.content.Context
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -72,6 +73,7 @@ class AudiobookCacheGenerator(
             context.toastOnUi("当前书籍目录为空，无法查询有声书状态")
             return
         }
+        val currentIndex = ReadBook.durChapterIndex.coerceIn(0, chapterCount - 1)
         val safeStartIndex = 0
         val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
         val submitCount = chapterCount
@@ -95,7 +97,8 @@ class AudiobookCacheGenerator(
                             book = book,
                             startIndex = safeStartIndex,
                             submitCount = submitCount,
-                            preloadCount = preloadCount
+                            preloadCount = preloadCount,
+                            currentIndex = currentIndex
                         )
                     }
                 }.onSuccess { data ->
@@ -193,7 +196,8 @@ class AudiobookCacheGenerator(
         book: Book,
         startIndex: Int,
         submitCount: Int,
-        preloadCount: Int
+        preloadCount: Int,
+        currentIndex: Int
     ): ChapterStatusData {
         val chapters = collectChapterPreview(
             bookUrl = book.bookUrl,
@@ -219,9 +223,12 @@ class AudiobookCacheGenerator(
                 )
             )
         }
-        val readyCount = snapshots.count { (_, status) -> status.status.isReadyStatus() }
-        val failedCount = snapshots.count { (_, status) -> status.status.lowercase() == "failed" }
-        val rows = snapshots.map { (chapter, status) ->
+        val displaySnapshots = snapshots.map { (chapter, status) ->
+            chapter to status.toReadableChapterStatus(chapter.chapterIndex, currentIndex)
+        }
+        val readyCount = displaySnapshots.count { (_, status) -> status.status.isReadyStatus() }
+        val failedCount = displaySnapshots.count { (_, status) -> status.status.lowercase() == "failed" }
+        val rows = displaySnapshots.map { (chapter, status) ->
             ChapterStatusRow(
                 chapter = chapter.copy(state = status.toChapterQueueState()),
                 status = status,
@@ -318,20 +325,26 @@ class AudiobookCacheGenerator(
         refresh: () -> Unit
     ): View {
         return LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             setPadding(0, 10.dpToPx(), 0, 10.dpToPx())
             addView(TextView(context).apply {
                 textSize = 15f
                 text = formatChapterStatusDetail(row.chapter, row.status)
                 layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    1f
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
                 )
             })
             if (row.canDelete) {
                 addView(Button(context).apply {
                     text = "删除"
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        gravity = Gravity.END
+                        topMargin = 6.dpToPx()
+                    }
                     setOnClickListener {
                         confirmDeleteChapterCache(book, row.chapter, refresh)
                     }
@@ -680,7 +693,7 @@ class AudiobookCacheGenerator(
                     append(status.failedItems)
                 }
             }
-            if (status.path.isNotBlank()) {
+            if (status.path.isNotBlank() && !status.status.isReadyStatus()) {
                 append("\n文件：")
                 append(status.path)
             }
@@ -851,6 +864,7 @@ class AudiobookCacheGenerator(
             "segments_ready" -> "片段已缓存"
             "failed" -> "生成失败"
             "pending" -> "等待生成"
+            "preparing" -> "预备生成"
             "caching_audio" -> "生成中"
             "cancelled", "canceled" -> "已取消"
             "not_generated" -> "未生成"
@@ -871,6 +885,24 @@ class AudiobookCacheGenerator(
         }
         if (status.lowercase() == "segments_ready") return "片段已缓存"
         return status.toChapterState()
+    }
+
+    private fun LocalAudiobookFileGenerator.ChapterStatus.toReadableChapterStatus(
+        chapterIndex: Int,
+        currentIndex: Int
+    ): LocalAudiobookFileGenerator.ChapterStatus {
+        val rawStatus = status.lowercase()
+        val isCurrentChapter = chapterIndex == currentIndex
+        val hasPartialSegments = totalItems > 0 && readyItems > 0 && !status.isReadyStatus()
+        return if (rawStatus == "failed" && (isCurrentChapter || hasPartialSegments)) {
+            copy(
+                status = "preparing",
+                error = "",
+                path = ""
+            )
+        } else {
+            this
+        }
     }
 
     private fun String.toChapterFormatName(): String {
