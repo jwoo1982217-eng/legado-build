@@ -69,7 +69,7 @@
         android:shadowDy="2"
         android:shadowRadius="4"
         android:text=""
-        app:icon="@drawable/ic_play_filled"
+        app:icon="@drawable/ic_headphones_play"
         app:iconGravity="textStart"
         app:iconPadding="0dp"
         app:iconSize="28dp"
@@ -204,6 +204,43 @@
             app:iconGravity="textStart"
             app:iconPadding="0dp"
             app:iconSize="20dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/read_aloud_page_choice_chip"
+        android:layout_width="236dp"
+        android:layout_height="42dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="22dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/read_aloud_keep_progress_button"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="↶ 原进度"
+            android:textSize="14sp" />
+
+        <View
+            android:id="@+id/read_aloud_page_choice_divider"
+            android:layout_width="1dp"
+            android:layout_height="20dp"
+            android:alpha="0.38" />
+
+        <TextView
+            android:id="@+id/read_aloud_from_page_button"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="从本页听"
+            android:textSize="14sp" />
     </LinearLayout>
 
     <com.google.android.material.button.MaterialButton

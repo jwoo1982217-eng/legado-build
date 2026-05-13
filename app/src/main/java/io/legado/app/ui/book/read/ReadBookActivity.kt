@@ -10,6 +10,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -19,6 +20,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.animation.LinearInterpolator
 import android.widget.LinearLayout
 import android.widget.PopupWindow
@@ -197,6 +199,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var readAloudFloatExpanded = false
     private var readAloudFloatTucked = false
     private var generatedAudiobookFloatActive = false
+    private var lastReadAloudChapterStart = -1
 
     private val tocActivity =
         registerForActivityResult(TocActivityResult()) {
@@ -1279,6 +1282,11 @@ class ReadBookActivity : BaseReadBookActivity(),
     override fun pageChanged() {
         pageChanged = true
         binding.readView.onPageChange()
+        if (BaseReadAloudService.isRun && readAloudFloatTucked) {
+            handler.post {
+                showReadAloudPageChoice()
+            }
+        }
         handler.post {
             upSeekBarProgress()
         }
@@ -1345,6 +1353,14 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun showActionMenu() {
         when {
+            BaseReadAloudService.isRun && readAloudFloatExpanded && !readAloudFloatTucked -> {
+                enterReadAloudFullscreenMode()
+            }
+
+            BaseReadAloudService.isRun && readAloudFloatTucked -> {
+                expandReadAloudFloatPanel()
+            }
+
             BaseReadAloudService.isRun -> showReadAloudDialog()
             isAutoPage -> showDialogFragment<AutoReadDialog>()
             isShowingSearchResult -> binding.searchMenu.runMenuIn()
@@ -1369,9 +1385,17 @@ class ReadBookActivity : BaseReadBookActivity(),
             tuckReadAloudFloatPanel()
         }
         binding.readAloudBottomChip.setOnClickListener {
+            hideReadAloudPageChoice()
             toggleReadAloudPlaybackOnly()
         }
+        binding.readAloudKeepProgressButton.setOnClickListener {
+            returnToReadAloudOriginalProgress()
+        }
+        binding.readAloudFromPageButton.setOnClickListener {
+            startReadAloudFromVisiblePage()
+        }
         binding.readAloudFloatPlayButton.setOnClickListener {
+            hideReadAloudPageChoice()
             toggleReadAloudPlaybackOnly()
         }
         binding.readAloudFloatCloseButton.setOnClickListener {
@@ -1379,6 +1403,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             readAloudFloatExpanded = false
             readAloudFloatTucked = false
             generatedAudiobookFloatActive = false
+            hideReadAloudPageChoice()
             updateAiBgMusicFloatButtonState()
         }
         updateAiBgMusicFloatButtonState()
@@ -1393,6 +1418,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             positionGeneratedAudiobookBubble()
         }
         binding.generatedAudiobookFloatButton.setOnClickListener {
+            hideReadAloudPageChoice()
             generatedAudiobookFloatActive = true
             readAloudFloatExpanded = true
             readAloudFloatTucked = false
@@ -1467,15 +1493,27 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (!BaseReadAloudService.isRun) {
             onClickReadAloud()
         }
-        readAloudFloatExpanded = true
-        readAloudFloatTucked = false
-        updateAiBgMusicFloatButtonState()
+        expandReadAloudFloatPanel()
     }
 
     private fun tuckReadAloudFloatPanel() {
         if (!BaseReadAloudService.isRun) return
+        enterReadAloudFullscreenMode()
+    }
+
+    private fun enterReadAloudFullscreenMode() {
+        if (!BaseReadAloudService.isRun) return
         readAloudFloatExpanded = false
         readAloudFloatTucked = true
+        hideReadAloudPageChoice()
+        upSystemUiVisibility()
+        updateAiBgMusicFloatButtonState()
+    }
+
+    private fun expandReadAloudFloatPanel() {
+        readAloudFloatExpanded = true
+        readAloudFloatTucked = false
+        hideReadAloudPageChoice()
         updateAiBgMusicFloatButtonState()
     }
 
@@ -1500,8 +1538,74 @@ class ReadBookActivity : BaseReadBookActivity(),
         updateAiBgMusicFloatButtonState()
     }
 
+    private fun showReadAloudPageChoice() {
+        if (!BaseReadAloudService.isRun || !readAloudFloatTucked) return
+        binding.readAloudBottomChip.visible(false)
+        binding.readAloudPageChoiceChip.visible(true)
+        positionBottomChip(binding.readAloudPageChoiceChip, 18)
+        handler.postDelayed({
+            if (binding.readAloudPageChoiceChip.visibility == View.VISIBLE) {
+                hideReadAloudPageChoice()
+                updateAiBgMusicFloatButtonState()
+            }
+        }, 8000L)
+    }
+
+    private fun hideReadAloudPageChoice() {
+        binding.readAloudPageChoiceChip.visible(false)
+    }
+
+    private fun returnToReadAloudOriginalProgress() {
+        hideReadAloudPageChoice()
+        pageChanged = false
+        val chapterStart = lastReadAloudChapterStart
+        if (chapterStart >= 0) {
+            val textChapter = ReadBook.curTextChapter
+            val maxPosition = textChapter?.lastReadLength ?: chapterStart
+            ReadBook.durChapterPos = chapterStart.coerceIn(0, maxPosition)
+            upContent(resetPageOffset = false)
+        }
+        if (BaseReadAloudService.pause) {
+            ReadAloud.resume(this)
+        }
+        readAloudFloatExpanded = false
+        readAloudFloatTucked = true
+        updateAiBgMusicFloatButtonState()
+    }
+
+    private fun startReadAloudFromVisiblePage() {
+        hideReadAloudPageChoice()
+        pageChanged = false
+        val pos = binding.readView.getReadAloudPos()
+        if (pos != null) {
+            val (index, line) = pos
+            if (ReadBook.durChapterIndex != index) {
+                ReadBook.openChapter(index, line.chapterPosition, false) {
+                    startReadAloudAtPagePosition(line.pagePosition)
+                }
+            } else {
+                ReadBook.durChapterPos = line.chapterPosition
+                startReadAloudAtPagePosition(line.pagePosition)
+            }
+        } else {
+            startReadAloudAtPagePosition(0)
+        }
+        readAloudFloatExpanded = false
+        readAloudFloatTucked = true
+        updateAiBgMusicFloatButtonState()
+    }
+
+    private fun startReadAloudAtPagePosition(startPos: Int) {
+        if (generatedAudiobookFloatActive) {
+            ReadAloud.playGeneratedChapter(this, startPos = startPos)
+        } else {
+            TtsServerDbBridge.ensureRunning(this)
+            ReadBook.readAloud(startPos = startPos)
+        }
+    }
+
     private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
-        binding.aiBgmFloatButton.setIconResource(R.drawable.ic_read_aloud)
+        binding.aiBgmFloatButton.setIconResource(R.drawable.ic_headphones_play)
         binding.aiBgmFloatButton.contentDescription =
             if (playing) "打开朗读播放器" else "开始朗读"
         updateFloatingPlayerText()
@@ -1535,16 +1639,27 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
         listOf(
             binding.readAloudFloatPlayButton,
-            binding.readAloudFloatCloseButton,
-            binding.readAloudBottomChip
+            binding.readAloudFloatCloseButton
         ).forEach { view ->
             view.iconTint = ColorStateList.valueOf(foreground)
             view.setTextColor(foreground)
             view.rippleColor = ColorStateList.valueOf(ripple)
             view.background = createAiBgMusicFloatButtonBackground(background)
         }
+        binding.readAloudBottomChip.apply {
+            iconTint = ColorStateList.valueOf(foreground)
+            setTextColor(foreground)
+            rippleColor = ColorStateList.valueOf(ripple)
+            setBackground(createFloatingPlayerPanelBackground(withAlpha(background, 0x99)))
+        }
         binding.readAloudFloatPanel.background = createFloatingPlayerPanelBackground(background)
         binding.readAloudFloatCover.background = createAiBgMusicFloatButtonBackground(background)
+        val promptBackground = withAlpha(themeColor(com.google.android.material.R.attr.colorSurfaceContainerHighest), 0xD9)
+        val promptForeground = themeColor(com.google.android.material.R.attr.colorOnSurface)
+        binding.readAloudPageChoiceChip.background = createFloatingPlayerPanelBackground(promptBackground)
+        binding.readAloudKeepProgressButton.setTextColor(promptForeground)
+        binding.readAloudFromPageButton.setTextColor(promptForeground)
+        binding.readAloudPageChoiceDivider.setBackgroundColor(promptForeground)
         loadFloatingPlayerCovers()
     }
 
@@ -1573,11 +1688,13 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     private fun updateFloatingPlayerVisibility() {
         val serviceRun = BaseReadAloudService.isRun
+        val choosingPage = binding.readAloudPageChoiceChip.visibility == View.VISIBLE
         val showPanel = serviceRun &&
                 readAloudFloatExpanded &&
                 !readAloudFloatTucked
         val showChip = serviceRun &&
-                readAloudFloatTucked
+                readAloudFloatTucked &&
+                !choosingPage
         binding.readAloudFloatPanel.visible(showPanel)
         binding.readAloudBottomChip.visible(showChip)
         binding.aiBgmFloatButton.visible(
@@ -1612,6 +1729,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             0
         )
         positionBottomChip(binding.readAloudBottomChip, 18)
+        positionBottomChip(binding.readAloudPageChoiceChip, 18)
         if (anchor.width <= 0 || anchor.height <= 0 || bubble.width <= 0 || bubble.height <= 0) return
         val rootWidth = binding.rootView.width.coerceAtLeast(1)
         val rootHeight = binding.rootView.height.coerceAtLeast(1)
@@ -1662,7 +1780,10 @@ class ReadBookActivity : BaseReadBookActivity(),
         val rootWidth = binding.rootView.width.coerceAtLeast(1)
         val rootHeight = binding.rootView.height.coerceAtLeast(1)
         chip.x = ((rootWidth - chip.width) / 2f).coerceAtLeast(0f)
-        chip.y = (rootHeight - chip.height - bottomDp.dpToPx()).coerceAtLeast(0).toFloat()
+        val bottomInset = navigationBottomInset()
+        chip.y = (rootHeight - chip.height - bottomDp.dpToPx() - bottomInset)
+            .coerceAtLeast(0)
+            .toFloat()
     }
 
     private fun createAiBgMusicFloatButtonBackground(backgroundColor: Int): GradientDrawable {
@@ -1670,6 +1791,27 @@ class ReadBookActivity : BaseReadBookActivity(),
             shape = GradientDrawable.OVAL
             setColor(backgroundColor)
         }
+    }
+
+    private fun withAlpha(color: Int, alpha: Int): Int {
+        return Color.argb(
+            alpha.coerceIn(0, 255),
+            Color.red(color),
+            Color.green(color),
+            Color.blue(color)
+        )
+    }
+
+    private fun navigationBottomInset(): Int {
+        if (ReadBookConfig.hideNavigationBar || navigationBarGravity != Gravity.BOTTOM) return 0
+        val inset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            binding.rootView.rootWindowInsets
+                ?.getInsets(WindowInsets.Type.systemBars())
+                ?.bottom ?: 0
+        } else {
+            0
+        }
+        return maxOf(binding.navigationBar.height, inset)
     }
 
     private fun createFloatingPlayerPanelBackground(backgroundColor: Int): GradientDrawable {
@@ -2701,6 +2843,8 @@ class ReadBookActivity : BaseReadBookActivity(),
                 readAloudFloatExpanded = false
                 readAloudFloatTucked = false
                 generatedAudiobookFloatActive = false
+                lastReadAloudChapterStart = -1
+                hideReadAloudPageChoice()
             }
             if (it == Status.STOP || it == Status.PAUSE) {
                 ReadBook.curTextChapter?.let { textChapter ->
@@ -2714,6 +2858,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             updateAiBgMusicFloatButtonState()
         }
         observeEventSticky<Int>(EventBus.TTS_PROGRESS) { chapterStart ->
+            lastReadAloudChapterStart = chapterStart
             lifecycleScope.launch(IO) {
                 if (BaseReadAloudService.isPlay()) {
                     ReadBook.curTextChapter?.let { textChapter ->
