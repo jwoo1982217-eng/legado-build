@@ -1026,7 +1026,7 @@ object ScriptBrain {
                         .put("voice", character.voiceTag)
                         .put("voiceTag", character.voiceTag)
                         .put("usageCount", 100)
-                        .put("source", "阅读端大脑")
+                        .put("source", "内置分析模式")
                 )
             }
         }

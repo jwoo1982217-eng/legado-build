@@ -139,8 +139,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginVertical="4dp"
-        android:contentDescription="有声书模式"
-        android:text="有声书模式"
+        android:contentDescription="内置分析模式"
+        android:text="内置分析模式"
         tools:ignore="HardcodedText,TouchTargetSizeCheck" />
 
     <com.google.android.material.button.MaterialButtonGroup

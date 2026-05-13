@@ -184,9 +184,9 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             AppConfig.scriptBrainEnabled = isChecked
             upScriptBrainToolsVisible(isChecked)
             if (isChecked) {
-                toastOnUi("有声书模式已开启")
+                toastOnUi("内置分析模式已开启")
             } else {
-                toastOnUi("有声书模式已关闭，继续兼容 TTS 端朗读规则")
+                toastOnUi("内置分析模式已关闭，继续兼容 TTS 端朗读规则")
             }
         }
         btnScriptCharacters.setOnClickListener { showScriptCharacters() }
@@ -871,7 +871,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
         val info = ScriptBrain.importedRuleInfo(context)
         addText("${analysis.chapterTitle}：角色列表（已标记 ${analysis.characters.size}）", 16f, true)
-        addText("来源：${analysis.source}，有声书模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭"}", 13f, color = Color.rgb(100, 100, 100))
+        addText("来源：${analysis.source}，内置分析模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭"}", 13f, color = Color.rgb(100, 100, 100))
         if (info != null) {
             addText("规则：${info.name} / ${if (info.isJson) "完整 JSON" else "JS"}", 13f, color = Color.rgb(100, 100, 100))
         }
@@ -911,7 +911,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
         }
 
-        addText("分析完成后会写入阅读端大脑目录，并更新这个角色列表。", 13f, color = Color.rgb(110, 110, 110))
+        addText("分析完成后会写入内置分析目录，并更新这个角色列表。", 13f, color = Color.rgb(110, 110, 110))
         return ScrollView(context).apply { addView(container) }
     }
 
@@ -921,7 +921,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             appendLine("${analysis.chapterTitle}")
             appendLine("台词行：${analysis.lines.size}，角色：${analysis.characters.size}")
             appendLine("来源：${analysis.source}")
-            appendLine("有声书模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
+            appendLine("内置分析模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
             if (analysis.error.isNotBlank()) {
                 appendLine("提示：${analysis.error}")
             }
@@ -1103,7 +1103,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     private fun showScriptRuleHelp() {
         val body = """
-            当前是开源阅读端“有声书模式”第一版。
+            当前是开源阅读端“内置分析模式”第一版。
 
             已启用：
             1. 可以粘贴导入完整旧 TTS 朗读规则 JSON，也兼容临时粘贴 JS。
