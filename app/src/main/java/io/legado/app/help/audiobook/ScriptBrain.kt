@@ -124,6 +124,7 @@ object ScriptBrain {
         val name: String,
         val type: String = "js",
         val enabled: Boolean = true,
+        val aiEnabled: Boolean = false,
         val code: String = "",
     )
 
@@ -317,6 +318,7 @@ object ScriptBrain {
                 module.copy(
                     name = latest.name,
                     type = latest.type,
+                    aiEnabled = latest.aiEnabled,
                     code = latest.code,
                 )
             } ?: module
@@ -567,7 +569,7 @@ object ScriptBrain {
                     }
                   });
                   var aiChanged = 0;
-                  if (typeof brain !== "undefined" && brain && brain.hasModel && brain.hasModel()) {
+                  if (ctx.aiEnabled && typeof brain !== "undefined" && brain && brain.hasModel && brain.hasModel()) {
                     try {
                       var dialogueLines = (ctx.lines || []).filter(function(line) { return !line.isNarration; }).map(lineBrief);
                       var prompt =
@@ -584,8 +586,10 @@ object ScriptBrain {
                     } catch (e) {
                       ctx.logs.push("AI说话人归属失败，已保留本地归属：" + e);
                     }
+                  } else if (!ctx.aiEnabled) {
+                    ctx.logs.push("说话人归属：本模块未允许调用 AI，使用本地归属");
                   }
-                  ctx.logs.push("说话人归属完成：AI更新 " + aiChanged + " 行");
+                  ctx.logs.push("说话人归属完成：" + (ctx.aiEnabled ? ("AI更新 " + aiChanged + " 行") : "本地归属"));
                   return ctx;
                 }
             """.trimIndent()
@@ -750,9 +754,12 @@ object ScriptBrain {
              * ctx 可用字段：
              * - ctx.bookName / ctx.bookUrl
              * - ctx.chapterIndex / ctx.chapterTitle / ctx.chapterText
+             * - ctx.module: { id, name, type, aiEnabled }
+             * - ctx.aiEnabled: 当前模块是否允许调用 AI
              * - ctx.lines: [{ index, roleName, voiceTag, isNarration, text, emotion }]
              * - ctx.characters: [{ name, aliases, gender, ageType, voiceTag }]
              * - ctx.logs: []
+             * - brain.hasModel() / brain.chatJson(prompt): AI 工具，建议先判断 ctx.aiEnabled
              *
              * 返回：
              * - return ctx
@@ -1052,6 +1059,13 @@ object ScriptBrain {
               ctx.logs = ctx.logs || [];
               ctx.lines = ctx.lines || [];
               ctx.characters = ctx.characters || [];
+              ctx.module = {
+                id: ${JSONObject.quote(module.id)},
+                name: ${JSONObject.quote(module.name)},
+                type: ${JSONObject.quote(module.type)},
+                aiEnabled: ${module.aiEnabled}
+              };
+              ctx.aiEnabled = ${module.aiEnabled};
               ${module.code}
               if (typeof run !== 'function') {
                 ctx.logs.push(${JSONObject.quote("${module.name} 未定义 run(ctx)，已跳过")});
@@ -1843,6 +1857,7 @@ object ScriptBrain {
             AnalysisModule(
                 id = "speaker_resolve",
                 name = "说话人归属",
+                aiEnabled = true,
                 code = defaultModuleCode("speaker_resolve", "说话人归属")
             ),
             AnalysisModule(
@@ -1893,6 +1908,19 @@ object ScriptBrain {
                         name = name,
                         type = firstText(item, "type").ifBlank { "js" },
                         enabled = item.optBoolean("enabled", true),
+                        aiEnabled = item.optBoolean(
+                            "aiEnabled",
+                            item.optBoolean(
+                                "allowAi",
+                                item.optBoolean(
+                                    "allowAI",
+                                    item.optBoolean(
+                                        "useAi",
+                                        item.optBoolean("useAI", false)
+                                    )
+                                )
+                            )
+                        ),
                         code = firstText(item, "code", "js", "script", "content", "source"),
                     )
                 )
@@ -1906,6 +1934,7 @@ object ScriptBrain {
             .put("name", name)
             .put("type", type)
             .put("enabled", enabled)
+            .put("aiEnabled", aiEnabled)
             .put("code", code)
     }
 
@@ -2015,7 +2044,7 @@ object ScriptBrain {
     private const val KEY_SELECTED_MODEL_PROFILES = "script_brain_selected_model_profiles"
     private const val KEY_ANALYSIS_MODULES = "script_brain_analysis_modules"
     private const val KEY_ANALYSIS_MODULES_VERSION = "script_brain_analysis_modules_version"
-    private const val DEFAULT_ANALYSIS_MODULE_VERSION = 2
+    private const val DEFAULT_ANALYSIS_MODULE_VERSION = 3
 
     private fun String.safeFileName(): String {
         return replace(Regex("[\\\\/:*?\"<>|\\r\\n]+"), "_").take(80).ifBlank { "未命名" }

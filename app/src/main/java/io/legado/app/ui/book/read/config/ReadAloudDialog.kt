@@ -1024,7 +1024,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         addText("模块列表：", 15f, true)
         modules.forEachIndexed { index, module ->
             addText(
-                "${if (module.enabled) "[开]" else "[关]"} ${(index + 1).toString().padStart(2, '0')} ${module.name}",
+                "${if (module.enabled) "[开]" else "[关]"} ${if (module.aiEnabled) "[AI]" else "[本地]"} ${(index + 1).toString().padStart(2, '0')} ${module.name}",
                 14f,
                 true
             )
@@ -1034,10 +1034,21 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                     dialog?.dismiss()
                     showScriptRules()
                 },
+                Button(context).compact(if (module.aiEnabled) "AI关" else "AI开") {
+                    ScriptBrain.upsertAnalysisModule(context, module.copy(aiEnabled = !module.aiEnabled))
+                    dialog?.dismiss()
+                    showScriptRules()
+                },
                 Button(context).compact("编辑") {
                     dialog?.dismiss()
                     showEditAnalysisModule(module)
                 },
+                Button(context).compact("测试") {
+                    dialog?.dismiss()
+                    testAnalysisModule(module)
+                },
+            )
+            addButtonRow(
                 Button(context).compact("上移") {
                     ScriptBrain.moveAnalysisModule(context, module.id, -1)
                     dialog?.dismiss()
@@ -1047,10 +1058,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                     ScriptBrain.moveAnalysisModule(context, module.id, 1)
                     dialog?.dismiss()
                     showScriptRules()
-                },
-                Button(context).compact("测试") {
-                    dialog?.dismiss()
-                    testAnalysisModule(module)
                 },
                 Button(context).compact("删除") {
                     ScriptBrain.deleteAnalysisModule(context, module.id)
@@ -1093,6 +1100,11 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             isChecked = module?.enabled ?: true
             textSize = 14f
         }
+        val aiCheck = CheckBox(context).apply {
+            text = "允许这个模块调用 AI"
+            isChecked = module?.aiEnabled ?: false
+            textSize = 14f
+        }
         val nameEdit = EditText(context).apply {
             setText(defaultName)
             hint = "模块名称，例如：说话人归属"
@@ -1102,6 +1114,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             text = """
                 JS 入口固定为 function run(ctx)。
                 ctx 里有整章正文、台词本 lines、角色表 characters、日志 logs。
+                ctx.aiEnabled 表示这个模块是否允许调用 AI；需要联网模型时先判断它。
                 保存后可点“测试当前章”，结果会写入台词本和角色表。
             """.trimIndent()
             textSize = 12f
@@ -1142,6 +1155,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                     module = module,
                     id = defaultId,
                     enabled = enabledCheck.isChecked,
+                    aiEnabled = aiCheck.isChecked,
                     name = nameEdit.text?.toString().orEmpty(),
                     code = codeEdit.text?.toString().orEmpty(),
                     showToast = false,
@@ -1154,6 +1168,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             orientation = LinearLayout.VERTICAL
             setPadding(16.dpToPx(), 10.dpToPx(), 16.dpToPx(), 10.dpToPx())
             addView(enabledCheck)
+            addView(aiCheck)
             addView(nameEdit)
             addView(helpText)
             addView(templateButton)
@@ -1168,6 +1183,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                     module = module,
                     id = defaultId,
                     enabled = enabledCheck.isChecked,
+                    aiEnabled = aiCheck.isChecked,
                     name = nameEdit.text?.toString().orEmpty(),
                     code = codeEdit.text?.toString().orEmpty(),
                     showToast = true,
@@ -1182,6 +1198,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         module: ScriptBrain.AnalysisModule?,
         id: String,
         enabled: Boolean,
+        aiEnabled: Boolean,
         name: String,
         code: String,
         showToast: Boolean,
@@ -1196,6 +1213,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             name = trimmedName,
             type = module?.type ?: "js",
             enabled = enabled,
+            aiEnabled = aiEnabled,
             code = code.ifBlank { ScriptBrain.defaultModuleCode(module?.id ?: id, trimmedName) },
         )
         ScriptBrain.upsertAnalysisModule(requireContext(), saved)
