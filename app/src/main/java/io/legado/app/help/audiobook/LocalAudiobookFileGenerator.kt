@@ -271,6 +271,24 @@ object LocalAudiobookFileGenerator {
         }
     }
 
+    fun clearBookMergedChapterAudio(context: Context, bookName: String): Boolean {
+        val appContext = context.applicationContext
+        val bookRoot = bookDir(appContext, bookName)
+        if (!bookRoot.exists()) return true
+        var success = true
+        bookRoot.listFiles()?.forEach { file ->
+            if (file.isDirectory) {
+                success = clearMergedChapterFiles(file) && success
+                success = downgradeMergedChapterManifest(File(file, "manifest.json")) && success
+            } else if (file.isChapterAudioFile()) {
+                success = FileUtils.delete(file, deleteRootDir = true) && success
+            } else if (file.extension.equals("json", ignoreCase = true)) {
+                success = downgradeMergedChapterManifest(file) && success
+            }
+        }
+        return success
+    }
+
     fun clearChapterAudioCache(
         context: Context,
         bookName: String,
@@ -291,6 +309,55 @@ object LocalAudiobookFileGenerator {
             }
         }
         return success
+    }
+
+    private fun clearMergedChapterFiles(dir: File): Boolean {
+        var success = true
+        listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio").forEach { extension ->
+            val file = File(dir, "chapter.$extension")
+            if (file.exists()) {
+                success = FileUtils.delete(file, deleteRootDir = true) && success
+            }
+        }
+        return success
+    }
+
+    private fun File.isChapterAudioFile(): Boolean {
+        return extension.lowercase() in setOf(
+            ProtectedAudiobookFile.EXTENSION,
+            "mp3",
+            "wav",
+            "audio"
+        )
+    }
+
+    private fun downgradeMergedChapterManifest(file: File): Boolean {
+        if (!file.exists() || file.length() <= 0) return true
+        return runCatching {
+            val json = JSONObject(file.readText(Charsets.UTF_8))
+            val items = json.optJSONArray("items") ?: JSONArray()
+            var readyItems = 0
+            for (index in 0 until items.length()) {
+                val status = items.optJSONObject(index)?.optString("status").orEmpty().lowercase()
+                if (status == "ready" || status == "completed") readyItems++
+            }
+            val nextStatus = if (items.length() > 0 && readyItems > 0) {
+                "segments_ready"
+            } else {
+                "not_generated"
+            }
+            json.put("status", nextStatus)
+                .put("path", "")
+                .put("format", "")
+                .put("sizeBytes", 0L)
+                .put("protectedChapterAudio", false)
+                .put("error", "")
+                .put("updatedAt", System.currentTimeMillis())
+            file.writeText(json.toString(), Charsets.UTF_8)
+            true
+        }.getOrElse {
+            FileUtils.delete(file, deleteRootDir = true)
+        }
     }
 
     fun clearAllAudioCache(context: Context): Boolean {

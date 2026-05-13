@@ -295,6 +295,19 @@ class AudiobookCacheGenerator(
             textSize = 16f
             text = data.header
         })
+        container.addView(Button(context).apply {
+            text = "清空本书整章音频"
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 12.dpToPx()
+                bottomMargin = 4.dpToPx()
+            }
+            setOnClickListener {
+                confirmClearBookMergedAudio(book, refresh)
+            }
+        })
         if (data.rows.isNotEmpty()) {
             container.addView(TextView(context).apply {
                 textSize = 15f
@@ -381,6 +394,38 @@ class AudiobookCacheGenerator(
                             "已删除第 ${chapter.chapterIndex + 1} 章有声书缓存"
                         } else {
                             "第 ${chapter.chapterIndex + 1} 章缓存可能未完全删除"
+                        }
+                    )
+                    postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
+                    refresh()
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmClearBookMergedAudio(
+        book: Book,
+        refresh: () -> Unit
+    ) {
+        AlertDialog.Builder(context)
+            .setTitle("清空本书整章音频")
+            .setMessage(
+                "只删除《${book.name}》已经合成好的完整章节音频，并把章节状态回退到片段已缓存/未生成；已经缓存的一句一句音频片段会尽量保留，方便重新合成。"
+            )
+            .setPositiveButton("清空") { _, _ ->
+                coroutineScope.launch {
+                    val success = withContext(IO) {
+                        LocalAudiobookFileGenerator.clearBookMergedChapterAudio(
+                            context = context,
+                            bookName = book.name
+                        )
+                    }
+                    context.toastOnUi(
+                        if (success) {
+                            "已清空本书整章音频"
+                        } else {
+                            "部分整章音频可能未删除完整"
                         }
                     )
                     postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
