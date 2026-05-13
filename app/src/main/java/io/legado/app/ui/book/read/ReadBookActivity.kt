@@ -73,6 +73,7 @@ import io.legado.app.lib.dialogs.alert
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.AiBgMusic
+import io.legado.app.model.BookCover
 import io.legado.app.model.ReadBook
 import io.legado.app.model.SourceCallBack
 import io.legado.app.model.analyzeRule.AnalyzeRule
@@ -192,6 +193,10 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     private var aiBgMusicMenuPopup: PopupWindow? = null
     private var aiBgMusicFloatAnimator: ObjectAnimator? = null
+    private var readAloudFloatCoverAnimator: ObjectAnimator? = null
+    private var readAloudFloatExpanded = false
+    private var readAloudFloatTucked = false
+    private var generatedAudiobookFloatActive = false
 
     private val tocActivity =
         registerForActivityResult(TocActivityResult()) {
@@ -1358,6 +1363,24 @@ class ReadBookActivity : BaseReadBookActivity(),
         val button = binding.aiBgmFloatButton
         button.visible(AiBgMusic.enabled)
         binding.generatedAudiobookFloatButton.visible(false)
+        binding.readAloudFloatPanel.visible(false)
+        binding.readAloudBottomChip.visible(false)
+        binding.readAloudFloatPanel.setOnClickListener {
+            tuckReadAloudFloatPanel()
+        }
+        binding.readAloudBottomChip.setOnClickListener {
+            toggleReadAloudPlaybackOnly()
+        }
+        binding.readAloudFloatPlayButton.setOnClickListener {
+            toggleReadAloudPlaybackOnly()
+        }
+        binding.readAloudFloatCloseButton.setOnClickListener {
+            ReadAloud.stop(this)
+            readAloudFloatExpanded = false
+            readAloudFloatTucked = false
+            generatedAudiobookFloatActive = false
+            updateAiBgMusicFloatButtonState()
+        }
         updateAiBgMusicFloatButtonState()
         updateGeneratedAudiobookFloatButtonState()
         button.post {
@@ -1370,7 +1393,11 @@ class ReadBookActivity : BaseReadBookActivity(),
             positionGeneratedAudiobookBubble()
         }
         binding.generatedAudiobookFloatButton.setOnClickListener {
+            generatedAudiobookFloatActive = true
+            readAloudFloatExpanded = true
+            readAloudFloatTucked = false
             playGeneratedAudiobook()
+            updateAiBgMusicFloatButtonState()
         }
         bindAiBgMusicFloatDrag()
     }
@@ -1420,7 +1447,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                         positionGeneratedAudiobookBubble()
                     } else {
                         view.performClick()
-                        toggleReadAloudFromFloat()
+                        openReadAloudFloatPlayer()
                     }
                     true
                 }
@@ -1435,7 +1462,24 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
     }
 
-    private fun toggleReadAloudFromFloat() {
+    private fun openReadAloudFloatPlayer() {
+        generatedAudiobookFloatActive = false
+        if (!BaseReadAloudService.isRun) {
+            onClickReadAloud()
+        }
+        readAloudFloatExpanded = true
+        readAloudFloatTucked = false
+        updateAiBgMusicFloatButtonState()
+    }
+
+    private fun tuckReadAloudFloatPanel() {
+        if (!BaseReadAloudService.isRun) return
+        readAloudFloatExpanded = false
+        readAloudFloatTucked = true
+        updateAiBgMusicFloatButtonState()
+    }
+
+    private fun toggleReadAloudPlaybackOnly() {
         when {
             BaseReadAloudService.isPlay() -> {
                 ReadAloud.pause(this)
@@ -1449,19 +1493,22 @@ class ReadBookActivity : BaseReadBookActivity(),
 
             else -> {
                 onClickReadAloud()
+                readAloudFloatExpanded = true
+                readAloudFloatTucked = false
             }
         }
         updateAiBgMusicFloatButtonState()
     }
 
     private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
-        binding.aiBgmFloatButton.setIconResource(
-            if (playing) R.drawable.ic_pause_filled else R.drawable.ic_play_filled
-        )
+        binding.aiBgmFloatButton.setIconResource(R.drawable.ic_read_aloud)
         binding.aiBgmFloatButton.contentDescription =
-            if (playing) "暂停朗读" else "开始朗读"
+            if (playing) "打开朗读播放器" else "开始朗读"
+        updateFloatingPlayerText()
         updateAiBgMusicFloatButtonAppearance()
+        updateFloatingPlayerVisibility()
         updateAiBgMusicFloatButtonRotation(playing)
+        updateFloatingCoverRotation(playing)
         updateGeneratedAudiobookFloatButtonState()
     }
 
@@ -1486,16 +1533,60 @@ class ReadBookActivity : BaseReadBookActivity(),
             rippleColor = ColorStateList.valueOf(ripple)
             this.background = createAiBgMusicFloatButtonBackground(background)
         }
+        listOf(
+            binding.readAloudFloatPlayButton,
+            binding.readAloudFloatCloseButton,
+            binding.readAloudBottomChip
+        ).forEach { view ->
+            view.iconTint = ColorStateList.valueOf(foreground)
+            view.setTextColor(foreground)
+            view.rippleColor = ColorStateList.valueOf(ripple)
+            view.background = createAiBgMusicFloatButtonBackground(background)
+        }
+        binding.readAloudFloatPanel.background = createFloatingPlayerPanelBackground(background)
+        binding.readAloudFloatCover.background = createAiBgMusicFloatButtonBackground(background)
+        loadFloatingPlayerCovers()
     }
 
     private fun updateGeneratedAudiobookFloatButtonState() {
-        val shouldShow = binding.aiBgmFloatButton.visibility == View.VISIBLE &&
-                hasCurrentGeneratedChapterAudio()
+        val shouldShow = hasCurrentGeneratedChapterAudio() &&
+                !generatedAudiobookFloatActive &&
+                !readAloudFloatExpanded &&
+                !readAloudFloatTucked
         binding.generatedAudiobookFloatButton.visible(shouldShow)
         if (shouldShow) {
-            updateAiBgMusicFloatButtonAppearance()
             positionGeneratedAudiobookBubble()
         }
+    }
+
+    private fun updateFloatingPlayerText() {
+        val bookName = ReadBook.book?.name.orEmpty().ifBlank { "正在朗读" }
+        val chapterTitle = ReadBook.curTextChapter?.title.orEmpty().ifBlank { "当前章节" }
+        binding.readAloudFloatTitle.text = if (generatedAudiobookFloatActive) "整章音频" else bookName
+        binding.readAloudFloatSubtitle.text = chapterTitle
+        val playing = BaseReadAloudService.isPlay()
+        val icon = if (playing) R.drawable.ic_pause_filled else R.drawable.ic_play_filled
+        binding.readAloudFloatPlayButton.setIconResource(icon)
+        binding.readAloudBottomChip.setIconResource(icon)
+        binding.readAloudBottomChip.text = if (playing) "暂停播放" else "继续播放"
+    }
+
+    private fun updateFloatingPlayerVisibility() {
+        val serviceRun = BaseReadAloudService.isRun
+        val showPanel = serviceRun &&
+                readAloudFloatExpanded &&
+                !readAloudFloatTucked
+        val showChip = serviceRun &&
+                readAloudFloatTucked
+        binding.readAloudFloatPanel.visible(showPanel)
+        binding.readAloudBottomChip.visible(showChip)
+        binding.aiBgmFloatButton.visible(
+            AiBgMusic.enabled &&
+                    !showPanel &&
+                    !showChip &&
+                    !generatedAudiobookFloatActive
+        )
+        positionGeneratedAudiobookBubble()
     }
 
     private fun hasCurrentGeneratedChapterAudio(): Boolean {
@@ -1515,10 +1606,13 @@ class ReadBookActivity : BaseReadBookActivity(),
     private fun positionGeneratedAudiobookBubble() {
         val anchor = binding.aiBgmFloatButton
         val bubble = binding.generatedAudiobookFloatButton
-        if (anchor.width <= 0 || anchor.height <= 0 || bubble.width <= 0 || bubble.height <= 0) {
-            bubble.post { positionGeneratedAudiobookBubble() }
-            return
-        }
+        positionFloatingPanelNearAnchor(
+            if (generatedAudiobookFloatActive) bubble else anchor,
+            binding.readAloudFloatPanel,
+            0
+        )
+        positionBottomChip(binding.readAloudBottomChip, 18)
+        if (anchor.width <= 0 || anchor.height <= 0 || bubble.width <= 0 || bubble.height <= 0) return
         val rootWidth = binding.rootView.width.coerceAtLeast(1)
         val rootHeight = binding.rootView.height.coerceAtLeast(1)
         val gap = 7.dpToPx()
@@ -1535,9 +1629,53 @@ class ReadBookActivity : BaseReadBookActivity(),
         bubble.y = targetY
     }
 
+    private fun positionFloatingPanelNearAnchor(anchor: View, panel: View, bottomGapDp: Int) {
+        if (panel.visibility != View.VISIBLE) return
+        if (panel.width <= 0 || panel.height <= 0 || binding.rootView.width <= 0) {
+            panel.post { positionGeneratedAudiobookBubble() }
+            return
+        }
+        val rootWidth = binding.rootView.width.coerceAtLeast(1)
+        val rootHeight = binding.rootView.height.coerceAtLeast(1)
+        val fallbackX = rootWidth - panel.width - 18.dpToPx()
+        val fallbackY = rootHeight - panel.height - (92 + bottomGapDp).dpToPx()
+        val targetX = if (anchor.width > 0 && anchor.visibility == View.VISIBLE) {
+            anchor.x + anchor.width - panel.width
+        } else {
+            fallbackX.toFloat()
+        }.coerceIn(0f, (rootWidth - panel.width).coerceAtLeast(0).toFloat())
+        val targetY = if (anchor.height > 0 && anchor.visibility == View.VISIBLE) {
+            anchor.y + (anchor.height - panel.height) / 2f
+        } else {
+            fallbackY.toFloat()
+        }.coerceIn(0f, (rootHeight - panel.height).coerceAtLeast(0).toFloat())
+        panel.x = targetX
+        panel.y = targetY
+    }
+
+    private fun positionBottomChip(chip: View, bottomDp: Int) {
+        if (chip.visibility != View.VISIBLE) return
+        if (chip.width <= 0 || chip.height <= 0 || binding.rootView.width <= 0) {
+            chip.post { positionGeneratedAudiobookBubble() }
+            return
+        }
+        val rootWidth = binding.rootView.width.coerceAtLeast(1)
+        val rootHeight = binding.rootView.height.coerceAtLeast(1)
+        chip.x = ((rootWidth - chip.width) / 2f).coerceAtLeast(0f)
+        chip.y = (rootHeight - chip.height - bottomDp.dpToPx()).coerceAtLeast(0).toFloat()
+    }
+
     private fun createAiBgMusicFloatButtonBackground(backgroundColor: Int): GradientDrawable {
         return GradientDrawable().apply {
             shape = GradientDrawable.OVAL
+            setColor(backgroundColor)
+        }
+    }
+
+    private fun createFloatingPlayerPanelBackground(backgroundColor: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 32.dpToPx().toFloat()
             setColor(backgroundColor)
         }
     }
@@ -1564,6 +1702,52 @@ class ReadBookActivity : BaseReadBookActivity(),
             aiBgMusicFloatAnimator = null
             button.animate().rotation(0f).setDuration(180L).start()
         }
+    }
+
+    private fun updateFloatingCoverRotation(playing: Boolean) {
+        readAloudFloatCoverAnimator = updateCoverRotationAnimator(
+            binding.readAloudFloatCover,
+            readAloudFloatCoverAnimator,
+            playing && BaseReadAloudService.isRun
+        )
+    }
+
+    private fun updateCoverRotationAnimator(
+        view: View,
+        animator: ObjectAnimator?,
+        playing: Boolean
+    ): ObjectAnimator? {
+        return if (playing) {
+            if (animator?.isStarted == true) {
+                animator
+            } else {
+                animator?.cancel()
+                ObjectAnimator.ofFloat(
+                    view,
+                    View.ROTATION,
+                    view.rotation,
+                    view.rotation + 360f
+                ).apply {
+                    duration = 7000L
+                    repeatCount = ValueAnimator.INFINITE
+                    repeatMode = ValueAnimator.RESTART
+                    interpolator = LinearInterpolator()
+                    start()
+                }
+            }
+        } else {
+            animator?.cancel()
+            view.animate().rotation(0f).setDuration(180L).start()
+            null
+        }
+    }
+
+    private fun loadFloatingPlayerCovers() {
+        val book = ReadBook.book
+        val cover = book?.getDisplayCover()
+        val origin = book?.origin
+        BookCover.load(this, cover, loadOnlyWifi = false, sourceOrigin = origin)
+            .into(binding.readAloudFloatCover)
     }
 
     private fun showAiBgMusicMenu(anchor: View) {
@@ -2513,6 +2697,11 @@ class ReadBookActivity : BaseReadBookActivity(),
             updateAiBgMusicFloatButtonAppearance()
         }
         observeEvent<Int>(EventBus.ALOUD_STATE) {
+            if (it == Status.STOP) {
+                readAloudFloatExpanded = false
+                readAloudFloatTucked = false
+                generatedAudiobookFloatActive = false
+            }
             if (it == Status.STOP || it == Status.PAUSE) {
                 ReadBook.curTextChapter?.let { textChapter ->
                     val page = textChapter.getPageByReadPos(ReadBook.durChapterPos)
@@ -2522,6 +2711,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                     }
                 }
             }
+            updateAiBgMusicFloatButtonState()
         }
         observeEventSticky<Int>(EventBus.TTS_PROGRESS) { chapterStart ->
             lifecycleScope.launch(IO) {
