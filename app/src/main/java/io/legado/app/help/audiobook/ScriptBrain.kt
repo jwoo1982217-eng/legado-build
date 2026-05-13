@@ -273,6 +273,43 @@ object ScriptBrain {
             .toString(2)
     }
 
+    fun defaultModuleCode(id: String, name: String): String {
+        val purpose = when (id) {
+            "text_preprocess" -> "整理章节段落、换行和空白，必须保留原文。"
+            "dialogue_split" -> "识别旁白、引号对话、半句对话。"
+            "speaker_resolve" -> "根据上下文判断每句对话属于哪个角色。"
+            "alias_merge" -> "合并角色名、称呼、代词和别名。"
+            "voice_tag" -> "为角色分配男/男青年01、女/女青年01等唯一音色标签。"
+            "emotion" -> "为台词标注平静、紧张、愤怒、哽咽等情绪。"
+            "validate" -> "检查未知角色、空台词、音色复用和异常归属。"
+            else -> "处理台词本或角色表，返回更新后的 ctx。"
+        }
+        return """
+            /**
+             * 模块：$name
+             * 作用：$purpose
+             *
+             * ctx 可用字段：
+             * - ctx.bookName / ctx.bookUrl
+             * - ctx.chapterIndex / ctx.chapterTitle / ctx.chapterText
+             * - ctx.lines: [{ index, roleName, voiceTag, isNarration, text, emotion }]
+             * - ctx.characters: [{ name, aliases, gender, ageType, voiceTag }]
+             * - ctx.logs: []
+             *
+             * 返回：
+             * - return ctx
+             * - 或 return { lines: ctx.lines, characters: ctx.characters, logs: ctx.logs }
+             */
+            function run(ctx) {
+              ctx.logs = ctx.logs || [];
+              ctx.lines = ctx.lines || [];
+              ctx.characters = ctx.characters || [];
+              ctx.logs.push("$name 完成");
+              return ctx;
+            }
+        """.trimIndent()
+    }
+
     fun modelProfiles(context: Context): List<AnalysisModelProfile> {
         val json = context.applicationContext.getPrefString(KEY_MODEL_PROFILES).orEmpty()
         if (json.isBlank()) return emptyList()
@@ -1230,37 +1267,37 @@ object ScriptBrain {
             AnalysisModule(
                 id = "text_preprocess",
                 name = "文本预处理",
-                code = "// 整理章节段落、换行和空白，必须保留原文。"
+                code = defaultModuleCode("text_preprocess", "文本预处理")
             ),
             AnalysisModule(
                 id = "dialogue_split",
                 name = "对话切分",
-                code = "// 识别旁白、引号对话、半句对话。"
+                code = defaultModuleCode("dialogue_split", "对话切分")
             ),
             AnalysisModule(
                 id = "speaker_resolve",
                 name = "说话人归属",
-                code = "// 根据上下文判断每句对话属于哪个角色。"
+                code = defaultModuleCode("speaker_resolve", "说话人归属")
             ),
             AnalysisModule(
                 id = "alias_merge",
                 name = "角色别名合并",
-                code = "// 合并角色名、称呼、代词和别名。"
+                code = defaultModuleCode("alias_merge", "角色别名合并")
             ),
             AnalysisModule(
                 id = "voice_tag",
                 name = "音色标签分配",
-                code = "// 为角色分配男/男青年01、女/女青年01等唯一音色标签。"
+                code = defaultModuleCode("voice_tag", "音色标签分配")
             ),
             AnalysisModule(
                 id = "emotion",
                 name = "情绪分析",
-                code = "// 为台词标注平静、紧张、愤怒、哽咽等情绪。"
+                code = defaultModuleCode("emotion", "情绪分析")
             ),
             AnalysisModule(
                 id = "validate",
                 name = "结果校验",
-                code = "// 检查未知角色、空台词、音色复用和异常归属。"
+                code = defaultModuleCode("validate", "结果校验")
             ),
         )
     }

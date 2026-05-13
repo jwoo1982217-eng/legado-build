@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -1070,51 +1071,121 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     private fun showEditAnalysisModule(module: ScriptBrain.AnalysisModule?) {
         val context = requireContext()
+        val defaultId = module?.id ?: "module_${System.currentTimeMillis()}"
+        val defaultName = module?.name.orEmpty()
+        val enabledCheck = CheckBox(context).apply {
+            text = "启用这个模块"
+            isChecked = module?.enabled ?: true
+            textSize = 14f
+        }
         val nameEdit = EditText(context).apply {
-            setText(module?.name.orEmpty())
+            setText(defaultName)
             hint = "模块名称，例如：说话人归属"
             setSingleLine(true)
         }
+        val helpText = TextView(context).apply {
+            text = """
+                JS 入口固定为 function run(ctx)。
+                ctx 里有整章正文、台词本 lines、角色表 characters、日志 logs。
+                保存后可点“测试当前章”，结果会写入台词本和角色表。
+            """.trimIndent()
+            textSize = 12f
+            setTextColor(Color.rgb(100, 100, 100))
+            setPadding(0, 8.dpToPx(), 0, 8.dpToPx())
+        }
         val codeEdit = EditText(context).apply {
-            setText(module?.code.orEmpty())
-            hint = "模块 JS，可先写规则说明；后续会按统一 ctx 执行"
-            minLines = 8
-            maxLines = 16
+            setText(module?.code.orEmpty().ifBlank {
+                ScriptBrain.defaultModuleCode(defaultId, defaultName.ifBlank { "新建模块" })
+            })
+            hint = "在这里编辑 JS 模块代码"
+            minLines = 14
+            maxLines = 24
+            typeface = Typeface.MONOSPACE
+            textSize = 13f
             inputType = InputType.TYPE_CLASS_TEXT or
                     InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                     InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             setHorizontallyScrolling(false)
+            setPadding(10.dpToPx(), 10.dpToPx(), 10.dpToPx(), 10.dpToPx())
+            background = GradientDrawable().apply {
+                cornerRadius = 8.dpToPx().toFloat()
+                setColor(Color.rgb(248, 248, 248))
+                setStroke(1.dpToPx(), Color.rgb(210, 210, 210))
+            }
+        }
+        val templateButton = Button(context).apply {
+            text = "填入默认 JS 模板"
+            setOnClickListener {
+                val name = nameEdit.text?.toString().orEmpty().trim().ifBlank { "新建模块" }
+                codeEdit.setText(ScriptBrain.defaultModuleCode(defaultId, name))
+            }
+        }
+        val testButton = Button(context).apply {
+            text = "保存并测试当前章"
+            setOnClickListener {
+                val saved = saveAnalysisModuleFromEditor(
+                    module = module,
+                    id = defaultId,
+                    enabled = enabledCheck.isChecked,
+                    name = nameEdit.text?.toString().orEmpty(),
+                    code = codeEdit.text?.toString().orEmpty(),
+                    showToast = false,
+                ) ?: return@setOnClickListener
+                toastOnUi("模块已保存，开始测试")
+                testAnalysisModule(saved)
+            }
         }
         val view = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16.dpToPx(), 10.dpToPx(), 16.dpToPx(), 10.dpToPx())
+            addView(enabledCheck)
             addView(nameEdit)
+            addView(helpText)
+            addView(templateButton)
             addView(codeEdit)
+            addView(testButton)
         }
         AlertDialog.Builder(context)
-            .setTitle(if (module == null) "添加分析模块" else "编辑模块：${module.name}")
+            .setTitle(if (module == null) "JS 模块编辑器" else "JS 模块：${module.name}")
             .setView(ScrollView(context).apply { addView(view) })
             .setPositiveButton("保存") { _, _ ->
-                val name = nameEdit.text?.toString().orEmpty().trim()
-                if (name.isBlank()) {
-                    toastOnUi("模块名称不能为空")
-                    return@setPositiveButton
-                }
-                ScriptBrain.upsertAnalysisModule(
-                    context,
-                    ScriptBrain.AnalysisModule(
-                        id = module?.id ?: "module_${System.currentTimeMillis()}",
-                        name = name,
-                        type = module?.type ?: "js",
-                        enabled = module?.enabled ?: true,
-                        code = codeEdit.text?.toString().orEmpty(),
-                    )
+                saveAnalysisModuleFromEditor(
+                    module = module,
+                    id = defaultId,
+                    enabled = enabledCheck.isChecked,
+                    name = nameEdit.text?.toString().orEmpty(),
+                    code = codeEdit.text?.toString().orEmpty(),
+                    showToast = true,
                 )
-                toastOnUi("模块已保存")
                 showScriptRules()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    private fun saveAnalysisModuleFromEditor(
+        module: ScriptBrain.AnalysisModule?,
+        id: String,
+        enabled: Boolean,
+        name: String,
+        code: String,
+        showToast: Boolean,
+    ): ScriptBrain.AnalysisModule? {
+        val trimmedName = name.trim()
+        if (trimmedName.isBlank()) {
+            toastOnUi("模块名称不能为空")
+            return null
+        }
+        val saved = ScriptBrain.AnalysisModule(
+            id = module?.id ?: id,
+            name = trimmedName,
+            type = module?.type ?: "js",
+            enabled = enabled,
+            code = code.ifBlank { ScriptBrain.defaultModuleCode(module?.id ?: id, trimmedName) },
+        )
+        ScriptBrain.upsertAnalysisModule(requireContext(), saved)
+        if (showToast) toastOnUi("模块已保存")
+        return saved
     }
 
     private fun testAnalysisModule(module: ScriptBrain.AnalysisModule) {
