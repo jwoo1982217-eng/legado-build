@@ -80,10 +80,11 @@ jobs:
       - name: Sign release APK
         run: |
           mkdir -p signed-apk
-          UNSIGNED=$(find app/build/outputs/apk -type f \( -name "*release*unsigned*.apk" -o -name "*release*.apk" \) | head -n 1)
+          UNSIGNED=$(find app/build/outputs/apk -type f \( -name "*universal*release*unsigned*.apk" -o -name "*universal*release*.apk" \) | sort | head -n 1)
           echo "UNSIGNED=$UNSIGNED"
           if [ -z "$UNSIGNED" ]; then
-            echo "No release APK found"
+            echo "No universal release APK found. Available APKs:"
+            find app/build/outputs/apk -type f -name "*.apk" -print | sort
             exit 1
           fi
 
