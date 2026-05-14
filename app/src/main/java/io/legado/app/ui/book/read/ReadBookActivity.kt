@@ -1436,10 +1436,27 @@ class ReadBookActivity : BaseReadBookActivity(),
         }
         binding.generatedAudiobookFloatButton.setOnClickListener {
             hideReadAloudPageChoice()
-            generatedAudiobookFloatActive = true
-            readAloudFloatExpanded = true
-            readAloudFloatTucked = false
-            playGeneratedAudiobook()
+            when (generatedAudiobookFloatState) {
+                GeneratedAudiobookFloatState.NotGenerated -> {
+                    generatedAudiobookFloatActive = false
+                    audiobookCacheGenerator.showGenerateDialog()
+                }
+
+                GeneratedAudiobookFloatState.Generating -> {
+                    audiobookCacheGenerator.showChapterStatusDialog()
+                }
+
+                GeneratedAudiobookFloatState.Ready -> {
+                    generatedAudiobookFloatActive = true
+                    readAloudFloatExpanded = true
+                    readAloudFloatTucked = false
+                    playGeneratedAudiobook()
+                }
+
+                GeneratedAudiobookFloatState.Playing -> {
+                    toggleReadAloudPlaybackOnly()
+                }
+            }
             updateAiBgMusicFloatButtonState()
         }
         bindAiBgMusicFloatDrag()
@@ -1622,9 +1639,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
-        binding.aiBgmFloatButton.setIconResource(
-            if (playing) R.drawable.ic_listen_float_headphones_pause else R.drawable.ic_listen_float_headphones_play
-        )
+        binding.aiBgmFloatButton.setIconResource(R.drawable.ic_listen_float_headphones)
         binding.aiBgmFloatButton.iconTint = null
         binding.aiBgmFloatButton.text = ""
         binding.aiBgmFloatButton.contentDescription =
@@ -1657,7 +1672,6 @@ class ReadBookActivity : BaseReadBookActivity(),
             iconTint = null
             setTextColor(Color.TRANSPARENT)
             rippleColor = ColorStateList.valueOf(ripple)
-            setBackgroundResource(R.drawable.bg_listen_float_mini)
         }
         binding.readAloudFloatPlayButton.apply {
             iconTint = ColorStateList.valueOf(Color.WHITE)
@@ -1706,8 +1720,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                 GeneratedAudiobookFloatState.NotGenerated
             }
         }
-        val shouldShow = generatedAudiobookFloatState != GeneratedAudiobookFloatState.NotGenerated &&
-                !readAloudFloatExpanded &&
+        val shouldShow = !readAloudFloatExpanded &&
                 !readAloudFloatTucked
         binding.generatedAudiobookFloatButton.applyGeneratedAudiobookFloatState(generatedAudiobookFloatState)
         binding.generatedAudiobookFloatButton.visible(shouldShow)
@@ -1741,8 +1754,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         binding.readAloudBottomChip.visible(showChip)
         binding.aiBgmFloatButton.visible(
             !showPanel &&
-                    !showChip &&
-                    !generatedAudiobookFloatActive
+                    !showChip
         )
         positionGeneratedAudiobookBubble()
     }
@@ -1792,17 +1804,17 @@ class ReadBookActivity : BaseReadBookActivity(),
     private fun MaterialButton.applyGeneratedAudiobookFloatState(state: GeneratedAudiobookFloatState) {
         when (state) {
             GeneratedAudiobookFloatState.NotGenerated -> {
-                setIconResource(R.drawable.ic_generated_audio_play)
-                setBackgroundResource(R.drawable.bg_listen_float_mini)
-                contentDescription = "整章音频未生成"
-                isEnabled = false
+                setIconResource(R.drawable.ic_generated_audio_idle)
+                setBackgroundResource(R.drawable.bg_listen_float_mini_idle)
+                contentDescription = "生成整章音频"
+                isEnabled = true
             }
 
             GeneratedAudiobookFloatState.Generating -> {
                 setIconResource(R.drawable.ic_generated_audio_generating)
                 setBackgroundResource(R.drawable.bg_listen_float_mini_generating)
-                contentDescription = "整章音频生成中"
-                isEnabled = false
+                contentDescription = "查看整章音频生成进度"
+                isEnabled = true
             }
 
             GeneratedAudiobookFloatState.Ready -> {
@@ -1813,9 +1825,13 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
 
             GeneratedAudiobookFloatState.Playing -> {
-                setIconResource(R.drawable.ic_generated_audio_pause)
+                setIconResource(
+                    if (BaseReadAloudService.isPlay()) R.drawable.ic_generated_audio_pause
+                    else R.drawable.ic_generated_audio_play
+                )
                 setBackgroundResource(R.drawable.bg_listen_float_mini)
-                contentDescription = "整章音频播放中"
+                contentDescription =
+                    if (BaseReadAloudService.isPlay()) "暂停整章音频" else "继续整章音频"
                 isEnabled = true
             }
         }
