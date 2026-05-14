@@ -73,6 +73,16 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             return GSON.fromJsonObject<SelectItem<String>>(ttsEngine).getOrNull()?.title
                 ?: getString(R.string.system_tts)
         }
+    private val listenEngineSummaryText: String
+        get() {
+            val raw = speakEngineSummary.trim()
+            val match = Regex("""^(.+?)\s*\((.+)\)\s*$""").find(raw)
+            return if (match != null) {
+                "朗读引擎 · ${match.groupValues[1].trim()}\n(${match.groupValues[2].trim()})"
+            } else {
+                "朗读引擎 · $raw"
+            }
+        }
     private val importSpeechRuleJson =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             uri ?: return@registerForActivityResult
@@ -174,7 +184,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         listenBookTitle.text = book?.name.orEmpty().ifBlank { "正在听书" }
         listenChapterTitle.text = ReadBook.curTextChapter?.title.orEmpty()
             .ifBlank { "当前章节" }
-        listenEngineSummary.text = "朗读引擎 · $speakEngineSummary"
+        listenEngineSummary.text = listenEngineSummaryText
         BookCover.load(
             requireContext(),
             book?.getDisplayCover(),
@@ -194,17 +204,15 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         btnSpeakEngineSetting.setOnClickListener {
             SpeakEngineDialog().show(childFragmentManager, "speakEngineDialog")
         }
+        btnListenClose.setOnClickListener {
+            dismissAllowingStateLoss()
+        }
         btnAiBgmConfig.setOnClickListener {
             showAiBgMusicPlaybackConfig()
         }
         cbScriptBrainEnabled.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.scriptBrainEnabled = isChecked
             upScriptBrainToolsVisible(isChecked)
-            if (isChecked) {
-                toastOnUi("内置分析模式已开启")
-            } else {
-                toastOnUi("内置分析模式已关闭，继续兼容 TTS 端朗读规则")
-            }
         }
         btnScriptCharacters.setOnClickListener { showScriptCharacters() }
         btnScriptPreview.setOnClickListener { showScriptPreview() }
@@ -220,10 +228,12 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
         ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
         ivCatalog.setOnClickListener { callBack?.openChapterList() }
-        ivToBackstage.setOnClickListener {
+        val toBackstageAction = View.OnClickListener {
             callBack?.returnToBookshelf()
             dismissAllowingStateLoss()
         }
+        ivToBackstage.setOnClickListener(toBackstageAction)
+        llToBackstage.setOnClickListener(toBackstageAction)
         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.ttsFlowSys = isChecked
             upTtsSpeechRateEnabled(!isChecked)
@@ -231,11 +241,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
         cbAiBgm.setOnCheckedChangeListener { _, isChecked ->
             AiBgMusic.enabled = isChecked
-            if (isChecked) {
-                toastOnUi("智能背景音乐已开启")
-            } else {
-                toastOnUi("智能背景音乐已关闭")
-            }
         }
 
         cbAudioPreload.setOnCheckedChangeListener { _, isChecked ->
@@ -247,21 +252,14 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             AppConfig.audioPreloadEnabled = isChecked
             if (isChecked) {
                 ReadAloud.startAudioPreload(requireContext())
-                toastOnUi("后台预缓存已开启，数量按听书预加载数量执行")
             } else {
                 ReadAloud.stopAudioPreload(requireContext())
-                toastOnUi("后台预缓存已暂停")
             }
         }
 
         cbAudiobookAutoMerge.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.audiobookAutoMergeAfterRead = isChecked
             AppConfig.audiobookConvertMergedToMp3 = true
-            if (isChecked) {
-                toastOnUi("生成有声书已开启，完整章节会保存为受保护加密 MP3")
-            } else {
-                toastOnUi("生成有声书已关闭，只保留句子片段")
-            }
         }
 
         btnAudiobookStatus.setOnClickListener {
@@ -340,7 +338,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     private fun upTtsSpeechRateEnabled(enabled: Boolean) {
         binding.run {
             upTtsSpeechRateText(AppConfig.ttsSpeechRate)
-            tvTtsSpeedValue.visible(enabled)
+            tvTtsSpeedValue.visible(true)
+            llTtsSpeechRate.alpha = if (enabled) 1f else 0.45f
             seekTtsSpeechRate.isEnabled = enabled
             ivTtsSpeechReduce.isEnabled = enabled
             ivTtsSpeechAdd.isEnabled = enabled
@@ -395,7 +394,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     override fun upSpeakEngineSummary() {
         binding.btnSpeakEngineSetting.contentDescription =
             getString(R.string.speak_engine) + "：" + speakEngineSummary
-        binding.listenEngineSummary.text = "朗读引擎 · $speakEngineSummary"
+        binding.listenEngineSummary.text = listenEngineSummaryText
     }
 
     private fun showAiBgMusicPlaybackConfig() {
@@ -1220,7 +1219,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
         val info = ScriptBrain.importedRuleInfo(context)
         addText("${analysis.chapterTitle}：角色列表（已标记 ${analysis.characters.size}）", 16f, true)
-        addText("来源：${analysis.source}，内置分析模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭"}", 13f, color = Color.rgb(100, 100, 100))
+        addText("来源：${analysis.source}，智能分析：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭"}", 13f, color = Color.rgb(100, 100, 100))
         if (info != null) {
             addText("规则：${info.name} / ${if (info.isJson) "完整 JSON" else "JS"}", 13f, color = Color.rgb(100, 100, 100))
         }
@@ -1260,7 +1259,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
         }
 
-        addText("分析完成后会写入内置分析目录，并更新这个角色列表。", 13f, color = Color.rgb(110, 110, 110))
+        addText("分析完成后会写入智能分析目录，并更新这个角色列表。", 13f, color = Color.rgb(110, 110, 110))
         return ScrollView(context).apply { addView(container) }
     }
 
@@ -1270,7 +1269,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             appendLine("${analysis.chapterTitle}")
             appendLine("台词行：${analysis.lines.size}，角色：${analysis.characters.size}")
             appendLine("来源：${analysis.source}")
-            appendLine("内置分析模式：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
+            appendLine("智能分析：${if (AppConfig.scriptBrainEnabled) "开启" else "关闭，仅手动预览"}")
             if (analysis.error.isNotBlank()) {
                 appendLine("提示：${analysis.error}")
             }
@@ -1688,17 +1687,17 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     private fun runScriptRuleForCurrentChapter() {
         val appContext = requireContext().applicationContext
-        toastOnUi("正在运行内置分析模块...")
+        toastOnUi("正在运行智能分析模块...")
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching { ScriptBrain.runAnalysisModulesForCurrentChapter(appContext) }
             }
             if (!isAdded) return@launch
             result.onSuccess { runResult ->
-                showTextDialog("内置分析运行结果", formatRuleRunResult(runResult, "结果已写入角色表和台词本。"))
+                showTextDialog("智能分析运行结果", formatRuleRunResult(runResult, "结果已写入角色表和台词本。"))
             }.onFailure {
                 showTextDialog(
-                    "内置分析运行失败",
+                    "智能分析运行失败",
                     it.localizedMessage ?: it.stackTraceToString()
                 )
             }
@@ -1822,7 +1821,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     private fun showScriptRuleHelp() {
         val body = """
-            当前是开源阅读端“内置分析模式”第一版。
+            当前是开源阅读端“智能分析”第一版。
 
             已启用：
             1. 可以粘贴导入完整旧 TTS 朗读规则 JSON，也兼容临时粘贴 JS。
