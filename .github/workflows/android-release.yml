@@ -81,41 +81,27 @@ jobs:
         run: |
           mkdir -p signed-apk
           ARM64_UNSIGNED=$(find app/build/outputs/apk -type f \( -name "*arm64-v8a*release*unsigned*.apk" -o -name "*arm64-v8a*release*.apk" \) | sort | head -n 1)
-          UNIVERSAL_UNSIGNED=$(find app/build/outputs/apk -type f \( -name "*universal*release*unsigned*.apk" -o -name "*universal*release*.apk" \) | sort | head -n 1)
           echo "ARM64_UNSIGNED=$ARM64_UNSIGNED"
-          echo "UNIVERSAL_UNSIGNED=$UNIVERSAL_UNSIGNED"
-          if [ -z "$ARM64_UNSIGNED" ] || [ -z "$UNIVERSAL_UNSIGNED" ]; then
-            echo "Missing release APK. Available APKs:"
+          if [ -z "$ARM64_UNSIGNED" ]; then
+            echo "No arm64-v8a release APK found. Available APKs:"
             find app/build/outputs/apk -type f -name "*.apk" -print | sort
             exit 1
           fi
 
-          sign_apk() {
-            local unsigned_apk="$1"
-            local output_apk="$2"
-            local aligned_apk="$3"
-            $ANDROID_HOME/build-tools/34.0.0/zipalign -p -f 4 "$unsigned_apk" "$aligned_apk"
-            $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
-              --ks ~/.android/debug.keystore \
-              --ks-key-alias "${{ secrets.DEBUG_KEY_ALIAS }}" \
-              --ks-pass pass:${{ secrets.DEBUG_KEYSTORE_PASSWORD }} \
-              --key-pass pass:${{ secrets.DEBUG_KEY_PASSWORD }} \
-              --out "$output_apk" \
-              "$aligned_apk"
-            $ANDROID_HOME/build-tools/34.0.0/apksigner verify --print-certs "$output_apk"
-          }
+          $ANDROID_HOME/build-tools/34.0.0/zipalign -p -f 4 "$ARM64_UNSIGNED" signed-apk/legado-release-aligned.apk
 
-          sign_apk "$ARM64_UNSIGNED" signed-apk/legado-release-signed.apk signed-apk/legado-release-arm64-aligned.apk
-          sign_apk "$UNIVERSAL_UNSIGNED" signed-apk/legado-release-universal-signed.apk signed-apk/legado-release-universal-aligned.apk
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
+            --ks ~/.android/debug.keystore \
+            --ks-key-alias "${{ secrets.DEBUG_KEY_ALIAS }}" \
+            --ks-pass pass:${{ secrets.DEBUG_KEYSTORE_PASSWORD }} \
+            --key-pass pass:${{ secrets.DEBUG_KEY_PASSWORD }} \
+            --out signed-apk/legado-release-signed.apk \
+            signed-apk/legado-release-aligned.apk
+
+          $ANDROID_HOME/build-tools/34.0.0/apksigner verify --print-certs signed-apk/legado-release-signed.apk
 
       - name: Upload arm64 release APK
         uses: actions/upload-artifact@v4
         with:
           name: legado-release-signed-apk
           path: signed-apk/legado-release-signed.apk
-
-      - name: Upload universal release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: legado-release-universal-signed-apk
-          path: signed-apk/legado-release-universal-signed.apk
