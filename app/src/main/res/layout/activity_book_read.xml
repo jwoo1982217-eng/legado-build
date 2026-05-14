@@ -130,7 +130,9 @@
             android:layout_height="50dp"
             android:background="@drawable/bg_ai_bgm_fab"
             android:clipToOutline="true"
-            android:contentDescription="朗读封面"
+            android:contentDescription="打开听书设置"
+            android:clickable="true"
+            android:focusable="true"
             android:padding="0dp"
             android:scaleType="centerCrop" />
 

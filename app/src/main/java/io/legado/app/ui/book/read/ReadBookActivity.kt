@@ -1384,6 +1384,9 @@ class ReadBookActivity : BaseReadBookActivity(),
         binding.readAloudFloatPanel.setOnClickListener {
             tuckReadAloudFloatPanel()
         }
+        binding.readAloudFloatCover.setOnClickListener {
+            showReadAloudDialog()
+        }
         binding.readAloudBottomChip.setOnClickListener {
             hideReadAloudPageChoice()
             toggleReadAloudPlaybackOnly()
