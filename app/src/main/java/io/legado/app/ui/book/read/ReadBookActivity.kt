@@ -1612,8 +1612,11 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
-        binding.aiBgmFloatButton.icon = null
-        binding.aiBgmFloatButton.text = "听"
+        binding.aiBgmFloatButton.setIconResource(
+            if (playing) R.drawable.ic_listen_float_pause else R.drawable.ic_listen_float_play
+        )
+        binding.aiBgmFloatButton.iconTint = null
+        binding.aiBgmFloatButton.text = ""
         binding.aiBgmFloatButton.contentDescription =
             if (playing) "打开朗读播放器" else "开始朗读"
         updateFloatingPlayerText()
@@ -1625,8 +1628,9 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun updateAiBgMusicFloatButtonAppearance() {
-        val background = themeColor(com.google.android.material.R.attr.colorPrimaryContainer)
-        val foreground = themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer)
+        val background = Color.rgb(0x6F, 0x7B, 0x35)
+        val panelBackground = Color.rgb(0xFF, 0xF8, 0xEA)
+        val foreground = Color.rgb(0x4F, 0x50, 0x39)
         val ripple = Color.argb(
             0x33,
             Color.red(foreground),
@@ -1634,34 +1638,37 @@ class ReadBookActivity : BaseReadBookActivity(),
             Color.blue(foreground)
         )
         binding.aiBgmFloatButton.apply {
-            iconTint = ColorStateList.valueOf(foreground)
-            setTextColor(foreground)
+            iconTint = null
+            setTextColor(Color.TRANSPARENT)
             rippleColor = ColorStateList.valueOf(ripple)
-            this.background = createAiBgMusicFloatButtonBackground(background)
+            setBackgroundResource(R.drawable.bg_listen_float_large)
         }
         binding.generatedAudiobookFloatButton.apply {
-            iconTint = ColorStateList.valueOf(foreground)
-            setTextColor(foreground)
+            iconTint = null
+            setTextColor(Color.TRANSPARENT)
+            rippleColor = ColorStateList.valueOf(ripple)
+            setBackgroundResource(R.drawable.bg_listen_float_mini)
+        }
+        binding.readAloudFloatPlayButton.apply {
+            iconTint = ColorStateList.valueOf(Color.WHITE)
+            setTextColor(Color.WHITE)
             rippleColor = ColorStateList.valueOf(ripple)
             this.background = createAiBgMusicFloatButtonBackground(background)
         }
-        listOf(
-            binding.readAloudFloatPlayButton,
-            binding.readAloudFloatCloseButton
-        ).forEach { view ->
-            view.iconTint = ColorStateList.valueOf(foreground)
-            view.setTextColor(foreground)
-            view.rippleColor = ColorStateList.valueOf(ripple)
-            view.background = createAiBgMusicFloatButtonBackground(background)
+        binding.readAloudFloatCloseButton.apply {
+            iconTint = ColorStateList.valueOf(foreground)
+            setTextColor(foreground)
+            rippleColor = ColorStateList.valueOf(ripple)
+            this.background = createAiBgMusicFloatButtonBackground(panelBackground)
         }
         binding.readAloudBottomChip.apply {
             iconTint = ColorStateList.valueOf(foreground)
             setTextColor(foreground)
             rippleColor = ColorStateList.valueOf(ripple)
-            setBackground(createFloatingPlayerPanelBackground(withAlpha(background, 0x99)))
+            setBackground(createFloatingPlayerPanelBackground(withAlpha(panelBackground, 0x99)))
         }
-        binding.readAloudFloatPanel.background = createFloatingPlayerPanelBackground(background)
-        binding.readAloudFloatCover.background = createAiBgMusicFloatButtonBackground(background)
+        binding.readAloudFloatPanel.background = createFloatingPlayerPanelBackground(withAlpha(panelBackground, 0xEB))
+        binding.readAloudFloatCover.setBackgroundResource(R.drawable.bg_listen_float_mini)
         val promptBackground = withAlpha(themeColor(com.google.android.material.R.attr.colorSurfaceContainerHighest), 0xD9)
         val promptForeground = themeColor(com.google.android.material.R.attr.colorOnSurface)
         binding.readAloudPageChoiceChip.background = createFloatingPlayerPanelBackground(promptBackground)

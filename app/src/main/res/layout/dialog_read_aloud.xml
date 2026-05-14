@@ -370,6 +370,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:contentDescription="背景音乐开启"
+                        android:scaleX="0.78"
+                        android:scaleY="0.78"
                         tools:ignore="TouchTargetSizeCheck" />
 
                     <com.google.android.material.button.MaterialButton
@@ -383,9 +385,9 @@
                         android:maxLines="1"
                         android:minHeight="0dp"
                         android:text="背景音乐播放配置"
-                        android:textSize="13sp"
+                        android:textSize="12sp"
                         app:icon="@drawable/ic_sliders"
-                        app:iconSize="19dp" />
+                        app:iconSize="18dp" />
 
                 </LinearLayout>
 
@@ -455,6 +457,8 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:contentDescription="内置分析模式"
+                        android:scaleX="0.78"
+                        android:scaleY="0.78"
                         tools:ignore="TouchTargetSizeCheck" />
 
                     <com.google.android.material.button.MaterialButton
@@ -551,39 +555,77 @@
                     android:orientation="horizontal"
                     android:paddingTop="8dp">
 
-                    <io.legado.app.lib.theme.view.ThemeSwitch
-                        android:id="@+id/cb_audio_preload"
+                    <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:contentDescription="后台预缓存"
-                        android:text="预缓存"
-                        tools:ignore="TouchTargetSizeCheck" />
+                        android:gravity="center"
+                        android:orientation="horizontal">
 
-                    <io.legado.app.lib.theme.view.ThemeSwitch
-                        android:id="@+id/cb_audiobook_auto_merge"
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:text="预缓存"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="13sp" />
+
+                        <io.legado.app.lib.theme.view.ThemeSwitch
+                            android:id="@+id/cb_audio_preload"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:contentDescription="后台预缓存"
+                            android:scaleX="0.76"
+                            android:scaleY="0.76"
+                            android:text=""
+                            tools:ignore="TouchTargetSizeCheck" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:contentDescription="生成有声书"
-                        android:text="有声书"
-                        tools:ignore="TouchTargetSizeCheck" />
+                        android:gravity="center"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:singleLine="true"
+                            android:text="有声书"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="13sp" />
+
+                        <io.legado.app.lib.theme.view.ThemeSwitch
+                            android:id="@+id/cb_audiobook_auto_merge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:contentDescription="生成有声书"
+                            android:scaleX="0.76"
+                            android:scaleY="0.76"
+                            android:text=""
+                            tools:ignore="TouchTargetSizeCheck" />
+
+                    </LinearLayout>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_audiobook_status"
                         style="@style/Widget.Material3Expressive.Button.TonalButton"
                         android:layout_width="0dp"
-                        android:layout_height="42dp"
+                        android:layout_height="38dp"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:minHeight="0dp"
                         android:text="章节列表"
-                        android:textSize="12sp"
+                        android:textSize="11sp"
                         app:icon="@drawable/ic_toc"
-                        app:iconSize="17dp" />
+                        app:iconSize="16dp" />
 
                 </LinearLayout>
 
@@ -622,7 +664,10 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:contentDescription="@string/flow_sys"
+                        android:scaleX="0.78"
+                        android:scaleY="0.78"
                         android:text="@string/flow_sys"
+                        android:textSize="13sp"
                         tools:ignore="TouchTargetSizeCheck" />
 
                 </LinearLayout>
