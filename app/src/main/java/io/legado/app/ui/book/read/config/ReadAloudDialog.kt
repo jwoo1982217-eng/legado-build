@@ -32,6 +32,7 @@ import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.AiBgMusic
+import io.legado.app.model.BookCover
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.service.BaseReadAloudService
@@ -153,6 +154,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun initData() = binding.run {
+        upListenHero()
         upPlayState()
         upTimerText(BaseReadAloudService.timeMinute)
         cbTtsFollowSys.isChecked = requireContext().getPrefBoolean("ttsFollowSys", true)
@@ -165,6 +167,20 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         upSpeakEngineSummary()
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
         upSeekTimer()
+    }
+
+    private fun upListenHero() = binding.run {
+        val book = ReadBook.book
+        listenBookTitle.text = book?.name.orEmpty().ifBlank { "正在听书" }
+        listenChapterTitle.text = ReadBook.curTextChapter?.title.orEmpty()
+            .ifBlank { "当前章节" }
+        listenEngineSummary.text = "朗读引擎 · $speakEngineSummary"
+        BookCover.load(
+            requireContext(),
+            book?.getDisplayCover(),
+            loadOnlyWifi = false,
+            sourceOrigin = book?.origin
+        ).into(listenCover)
     }
 
     private fun initEvent() = binding.run {
@@ -379,6 +395,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     override fun upSpeakEngineSummary() {
         binding.btnSpeakEngineSetting.contentDescription =
             getString(R.string.speak_engine) + "：" + speakEngineSummary
+        binding.listenEngineSummary.text = "朗读引擎 · $speakEngineSummary"
     }
 
     private fun showAiBgMusicPlaybackConfig() {
