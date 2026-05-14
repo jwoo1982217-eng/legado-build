@@ -1353,6 +1353,10 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     override fun showActionMenu() {
         when {
+            BaseReadAloudService.isRun && binding.readAloudFloatPanel.visibility == View.VISIBLE -> {
+                enterReadAloudFullscreenMode()
+            }
+
             BaseReadAloudService.isRun && readAloudFloatExpanded && !readAloudFloatTucked -> {
                 enterReadAloudFullscreenMode()
             }
@@ -1377,7 +1381,7 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     private fun initAiBgMusicView() {
         val button = binding.aiBgmFloatButton
-        button.visible(AiBgMusic.enabled)
+        button.visible(true)
         binding.generatedAudiobookFloatButton.visible(false)
         binding.readAloudFloatPanel.visible(false)
         binding.readAloudBottomChip.visible(false)
@@ -1608,7 +1612,8 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
-        binding.aiBgmFloatButton.setIconResource(R.drawable.ic_headphones_play)
+        binding.aiBgmFloatButton.icon = null
+        binding.aiBgmFloatButton.text = "听"
         binding.aiBgmFloatButton.contentDescription =
             if (playing) "打开朗读播放器" else "开始朗读"
         updateFloatingPlayerText()
@@ -1701,8 +1706,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         binding.readAloudFloatPanel.visible(showPanel)
         binding.readAloudBottomChip.visible(showChip)
         binding.aiBgmFloatButton.visible(
-            AiBgMusic.enabled &&
-                    !showPanel &&
+            !showPanel &&
                     !showChip &&
                     !generatedAudiobookFloatActive
         )

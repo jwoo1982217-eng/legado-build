@@ -48,10 +48,10 @@
     <com.google.android.material.button.MaterialButton
         android:id="@+id/ai_bgm_float_button"
         style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-        android:layout_width="58dp"
-        android:layout_height="58dp"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
         android:layout_gravity="end|bottom"
-        android:layout_marginEnd="24dp"
+        android:layout_marginEnd="22dp"
         android:layout_marginBottom="92dp"
         android:alpha="1"
         android:background="@drawable/bg_ai_bgm_fab"
@@ -68,25 +68,24 @@
         android:shadowDx="0"
         android:shadowDy="2"
         android:shadowRadius="4"
-        android:text=""
-        app:icon="@drawable/ic_headphones_play"
-        app:iconGravity="textStart"
-        app:iconPadding="0dp"
-        app:iconSize="28dp"
-        app:iconTint="#FFFFFFFF"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:text="听"
         android:textColor="#FFFFFFFF"
+        android:textSize="26sp"
+        android:textStyle="bold"
         android:visibility="gone"
         app:backgroundTint="@null"
-        app:cornerRadius="29dp"
+        app:cornerRadius="32dp"
         app:rippleColor="#33FFFFFF" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/generated_audiobook_float_button"
         style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
         android:layout_gravity="end|bottom"
-        android:layout_marginEnd="33dp"
+        android:layout_marginEnd="32dp"
         android:layout_marginBottom="44dp"
         android:alpha="1"
         android:background="@drawable/bg_ai_bgm_fab"
@@ -103,7 +102,7 @@
         android:textColor="#FFFFFFFF"
         android:visibility="gone"
         app:backgroundTint="@null"
-        app:cornerRadius="20dp"
+        app:cornerRadius="21dp"
         app:icon="@drawable/ic_play_filled"
         app:iconGravity="textStart"
         app:iconPadding="0dp"
@@ -113,8 +112,8 @@
 
     <LinearLayout
         android:id="@+id/read_aloud_float_panel"
-        android:layout_width="252dp"
-        android:layout_height="64dp"
+        android:layout_width="266dp"
+        android:layout_height="58dp"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="18dp"
         android:layout_marginBottom="92dp"
@@ -126,8 +125,8 @@
 
         <ImageView
             android:id="@+id/read_aloud_float_cover"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@drawable/bg_ai_bgm_fab"
             android:clipToOutline="true"
             android:contentDescription="打开听书设置"
@@ -150,7 +149,7 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="?attr/colorOnSurface"
-                android:textSize="15sp" />
+                android:textSize="14sp" />
 
             <TextView
                 android:id="@+id/read_aloud_float_subtitle"
@@ -159,14 +158,14 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/read_aloud_float_play_button"
             style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:background="@drawable/bg_ai_bgm_fab"
             android:contentDescription="暂停或继续朗读"
             android:elevation="0dp"
@@ -178,7 +177,7 @@
             android:minHeight="0dp"
             android:padding="0dp"
             app:backgroundTint="@null"
-            app:cornerRadius="21dp"
+            app:cornerRadius="20dp"
             app:icon="@drawable/ic_pause_filled"
             app:iconGravity="textStart"
             app:iconPadding="0dp"
@@ -187,8 +186,8 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/read_aloud_float_close_button"
             style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="2dp"
             android:background="@drawable/bg_ai_bgm_fab"
             android:contentDescription="停止朗读"
@@ -201,7 +200,7 @@
             android:minHeight="0dp"
             android:padding="0dp"
             app:backgroundTint="@null"
-            app:cornerRadius="21dp"
+            app:cornerRadius="20dp"
             app:icon="@drawable/ic_baseline_close"
             app:iconGravity="textStart"
             app:iconPadding="0dp"

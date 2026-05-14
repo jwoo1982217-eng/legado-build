@@ -4,654 +4,818 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root_view"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:background="@drawable/bg_listen_sheet_panel"
+    android:clipToPadding="false"
     android:orientation="vertical"
-    android:paddingHorizontal="20dp"
-    android:paddingBottom="14dp">
+    android:paddingStart="18dp"
+    android:paddingEnd="18dp"
+    android:paddingBottom="10dp"
+    tools:ignore="HardcodedText">
 
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:paddingBottom="4dp">
+        android:layout_height="68dp">
 
         <com.google.android.material.bottomsheet.BottomSheetDragHandleView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:paddingVertical="16dp"
+            android:layout_gravity="top|center_horizontal"
             android:minHeight="0dp"
-            android:layout_gravity="center_horizontal" />
+            android:paddingTop="8dp"
+            android:paddingBottom="4dp" />
 
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="48dp">
+        <TextView
+            android:id="@+id/bottom_sheet_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:includeFontPadding="false"
+            android:letterSpacing="0"
+            android:text="听书设置"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="22sp"
+            android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/bottom_sheet_title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:text="听书设置"
-                android:textSize="20sp"
-                android:textStyle="bold" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_speak_engine_setting"
+            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_gravity="end|center_vertical"
+            android:contentDescription="@string/speak_engine"
+            android:tooltipText="@string/speak_engine"
+            app:icon="@drawable/ic_settings"
+            app:iconSize="24dp"
+            tools:ignore="UnusedAttribute" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_speak_engine_setting"
-                style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_gravity="end|center_vertical"
-                android:contentDescription="@string/speak_engine"
-                android:tooltipText="@string/speak_engine"
-                app:icon="@drawable/ic_settings"
-                tools:ignore="UnusedAttribute" />
+    </FrameLayout>
 
-        </FrameLayout>
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/listen_hero"
+    <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        android:background="@drawable/bg_listen_soft_card"
-        android:baselineAligned="false"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="14dp">
-
-        <FrameLayout
-            android:layout_width="118dp"
-            android:layout_height="116dp"
-            android:clipChildren="false"
-            android:clipToPadding="false">
-
-            <View
-                android:layout_width="84dp"
-                android:layout_height="84dp"
-                android:layout_gravity="end|center_vertical"
-                android:background="@drawable/bg_listen_record"
-                android:alpha="0.92" />
-
-            <ImageView
-                android:id="@+id/listen_cover"
-                android:layout_width="82dp"
-                android:layout_height="108dp"
-                android:layout_gravity="start|center_vertical"
-                android:background="@drawable/bg_listen_cover_frame"
-                android:clipToOutline="true"
-                android:contentDescription="封面"
-                android:padding="2dp"
-                android:scaleType="centerCrop" />
-
-        </FrameLayout>
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:fillViewport="false"
+        android:overScrollMode="never"
+        android:paddingBottom="6dp">
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="14dp"
-            android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/listen_book_title"
+            <LinearLayout
+                android:id="@+id/listen_hero"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                tools:text="人间草木" />
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="2dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="2dp"
+                android:paddingBottom="8dp">
 
-            <TextView
-                android:id="@+id/listen_chapter_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="15sp"
-                tools:text="第十五章" />
+                <FrameLayout
+                    android:layout_width="142dp"
+                    android:layout_height="128dp"
+                    android:clipChildren="false"
+                    android:clipToPadding="false">
 
-            <TextView
-                android:id="@+id/listen_engine_summary"
+                    <View
+                        android:layout_width="98dp"
+                        android:layout_height="98dp"
+                        android:layout_gravity="end|center_vertical"
+                        android:alpha="0.96"
+                        android:background="@drawable/bg_listen_record" />
+
+                    <ImageView
+                        android:id="@+id/listen_cover"
+                        android:layout_width="104dp"
+                        android:layout_height="122dp"
+                        android:layout_gravity="start|center_vertical"
+                        android:background="@drawable/bg_listen_cover_frame"
+                        android:clipToOutline="true"
+                        android:contentDescription="封面"
+                        android:elevation="2dp"
+                        android:padding="2dp"
+                        android:scaleType="centerCrop" />
+
+                </FrameLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="14dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:paddingEnd="2dp">
+
+                    <TextView
+                        android:id="@+id/listen_chapter_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:letterSpacing="0"
+                        android:maxLines="2"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        tools:text="第十五章" />
+
+                    <TextView
+                        android:id="@+id/listen_engine_summary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:ellipsize="end"
+                        android:letterSpacing="0"
+                        android:lineSpacingExtra="2dp"
+                        android:maxLines="2"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="14sp"
+                        tools:text="朗读引擎 · J.TTS Server" />
+
+                    <TextView
+                        android:id="@+id/listen_book_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:ellipsize="end"
+                        android:letterSpacing="0"
+                        android:maxLines="1"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="13sp"
+                        tools:text="人间草木" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="13sp"
-                tools:text="朗读引擎 · J.TTS Server" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="4dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="5dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00:00"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp" />
+
+                <io.legado.app.lib.theme.view.ThemeSlider
+                    android:id="@+id/seek_timer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="8dp"
+                    android:layout_weight="1"
+                    android:stepSize="1.0"
+                    android:valueFrom="0.0"
+                    android:valueTo="180.0" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="09:28"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:baselineAligned="false"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/tv_pre"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Outlined"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:contentDescription="@string/previous_chapter"
+                        android:text=""
+                        app:icon="@drawable/ic_skip_previous"
+                        app:iconSize="22dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="@string/previous_chapter"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/iv_play_prev"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:contentDescription="@string/prev_sentence"
+                        android:tooltipText="@string/prev_sentence"
+                        app:icon="@drawable/ic_skip_previous"
+                        app:iconSize="22dp"
+                        tools:ignore="UnusedAttribute" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="@string/prev_sentence"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1.15"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/iv_play_pause"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                        android:layout_width="58dp"
+                        android:layout_height="58dp"
+                        android:contentDescription="@string/audio_play"
+                        android:tooltipText="@string/audio_play"
+                        app:backgroundTint="?attr/colorPrimary"
+                        app:icon="@drawable/ic_play"
+                        app:iconSize="30dp"
+                        app:iconTint="?attr/colorOnPrimary"
+                        tools:ignore="UnusedAttribute" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="@string/audio_play"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/iv_play_next"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:contentDescription="@string/next_sentence"
+                        android:tooltipText="@string/next_sentence"
+                        app:icon="@drawable/ic_skip_next"
+                        app:iconSize="22dp"
+                        tools:ignore="UnusedAttribute" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="@string/next_sentence"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/tv_next"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Outlined"
+                        android:layout_width="46dp"
+                        android:layout_height="46dp"
+                        android:contentDescription="@string/next_chapter"
+                        android:text=""
+                        app:icon="@drawable/ic_skip_next"
+                        app:iconSize="22dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="@string/next_chapter"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="11sp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_listen_soft_card"
+                android:orientation="vertical"
+                android:paddingHorizontal="12dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:drawableStart="@drawable/ic_music_note"
+                        android:drawablePadding="8dp"
+                        android:gravity="center_vertical"
+                        android:text="背景音乐开启"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="15sp" />
+
+                    <io.legado.app.lib.theme.view.ThemeSwitch
+                        android:id="@+id/cb_ai_bgm"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:contentDescription="背景音乐开启"
+                        tools:ignore="TouchTargetSizeCheck" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_ai_bgm_config"
+                        style="@style/Widget.Material3Expressive.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:minHeight="0dp"
+                        android:text="背景音乐播放配置"
+                        android:textSize="13sp"
+                        app:icon="@drawable/ic_sliders"
+                        app:iconSize="19dp" />
+
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginVertical="8dp"
+                    android:alpha="0.32"
+                    android:background="?attr/colorOutlineVariant" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:baselineAligned="false"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:orientation="vertical">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/iv_stop"
+                            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                            android:layout_width="46dp"
+                            android:layout_height="46dp"
+                            android:contentDescription="@string/stop"
+                            android:tooltipText="@string/stop"
+                            app:icon="@drawable/ic_stop_black_24dp"
+                            app:iconSize="21dp"
+                            tools:ignore="UnusedAttribute" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="3dp"
+                            android:text="@string/stop"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="2.1"
+                        android:gravity="center_vertical"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:drawableStart="@drawable/ic_leaf_simple"
+                            android:drawablePadding="8dp"
+                            android:text="内置分析模式"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="15sp" />
+
+                    </LinearLayout>
+
+                    <io.legado.app.lib.theme.view.ThemeSwitch
+                        android:id="@+id/cb_script_brain_enabled"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:contentDescription="内置分析模式"
+                        tools:ignore="TouchTargetSizeCheck" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/iv_timer"
+                        style="@style/Widget.Material3.Button.IconButton.Outlined"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="5dp"
+                        android:contentDescription="@string/set_timer"
+                        app:icon="@drawable/ic_time_add_24dp"
+                        app:iconSize="20dp" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/layout_script_brain_tools"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal"
+                    android:visibility="gone"
+                    android:weightSum="4">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_script_characters"
+                        style="@style/Widget.Material3Expressive.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="4dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:maxLines="1"
+                        android:minHeight="0dp"
+                        android:text="角色表"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_leaf_simple"
+                        app:iconSize="17dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_script_preview"
+                        style="@style/Widget.Material3Expressive.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_marginHorizontal="4dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:maxLines="1"
+                        android:minHeight="0dp"
+                        android:text="台词本"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_toc"
+                        app:iconSize="17dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_script_rules"
+                        style="@style/Widget.Material3Expressive.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_marginHorizontal="4dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:maxLines="1"
+                        android:minHeight="0dp"
+                        android:text="分析规则"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_menu"
+                        app:iconSize="17dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_script_model_config"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="4dp"
+                        android:contentDescription="分析模型配置"
+                        android:tooltipText="分析模型配置"
+                        app:icon="@drawable/ic_settings"
+                        app:iconSize="20dp"
+                        tools:ignore="UnusedAttribute" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="8dp">
+
+                    <io.legado.app.lib.theme.view.ThemeSwitch
+                        android:id="@+id/cb_audio_preload"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:contentDescription="后台预缓存"
+                        android:text="预缓存"
+                        tools:ignore="TouchTargetSizeCheck" />
+
+                    <io.legado.app.lib.theme.view.ThemeSwitch
+                        android:id="@+id/cb_audiobook_auto_merge"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:contentDescription="生成有声书"
+                        android:text="有声书"
+                        tools:ignore="TouchTargetSizeCheck" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_audiobook_status"
+                        style="@style/Widget.Material3Expressive.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:minHeight="0dp"
+                        android:text="章节列表"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_toc"
+                        app:iconSize="17dp" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="8dp">
+
+                    <TextView
+                        android:id="@+id/tv_tts_speed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:drawableStart="@drawable/ic_leaf_simple"
+                        android:drawablePadding="8dp"
+                        android:text="@string/read_aloud_speed"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="15sp" />
+
+                    <TextView
+                        android:id="@+id/tv_tts_speed_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingHorizontal="3dp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="13sp" />
+
+                    <Space
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <io.legado.app.lib.theme.view.ThemeSwitch
+                        android:id="@+id/cb_tts_follow_sys"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:contentDescription="@string/flow_sys"
+                        android:text="@string/flow_sys"
+                        tools:ignore="TouchTargetSizeCheck" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/ll_tts_SpeechRate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="6dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/iv_tts_speech_reduce"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/tts_speech_reduce"
+                        android:tooltipText="@string/tts_speech_reduce"
+                        app:icon="@drawable/ic_reduce"
+                        app:iconSize="19dp"
+                        tools:ignore="UnusedAttribute" />
+
+                    <io.legado.app.lib.theme.view.ThemeSlider
+                        android:id="@+id/seek_tts_speechRate"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="8dp"
+                        android:layout_weight="1"
+                        android:stepSize="1"
+                        android:valueFrom="0"
+                        android:valueTo="80" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/iv_tts_speech_add"
+                        style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/tts_speech_add"
+                        android:tooltipText="@string/tts_speech_add"
+                        app:icon="@drawable/ic_add"
+                        app:iconSize="19dp"
+                        tools:ignore="UnusedAttribute" />
+
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_timer"
+                    style="@style/Widget.Material3Expressive.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginTop="4dp"
+                    android:minHeight="0dp"
+                    android:text="@string/timer_m"
+                    android:textColor="?attr/colorOnSecondaryContainer"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
-    </LinearLayout>
+    </ScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginVertical="6dp"
-        android:background="@drawable/bg_listen_soft_card"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="8dp">
-
-        <io.legado.app.lib.theme.view.ThemeSwitch
-            android:id="@+id/cb_ai_bgm"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:contentDescription="背景音乐开启"
-            android:text="背景音乐开启"
-            tools:ignore="HardcodedText,TouchTargetSizeCheck" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_ai_bgm_config"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="背景音乐播放配置"
-            app:icon="@drawable/ic_leaf"
-            tools:ignore="HardcodedText" />
-
-    </LinearLayout>
-
-    <com.google.android.material.button.MaterialButtonGroup
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginVertical="10dp"
-        android:gravity="center"
-        android:orientation="horizontal">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/iv_play_prev"
-            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:contentDescription="@string/prev_sentence"
-            android:tooltipText="@string/prev_sentence"
-            app:icon="@drawable/ic_skip_previous"
-            tools:ignore="UnusedAttribute" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/iv_play_pause"
-            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="62dp"
-            android:layout_height="62dp"
-            android:layout_marginHorizontal="12dp"
-            android:contentDescription="@string/audio_play"
-            android:tooltipText="@string/audio_play"
-            app:icon="@drawable/ic_play"
-            app:iconSize="30dp"
-            tools:ignore="UnusedAttribute" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/iv_stop"
-            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:layout_marginEnd="12dp"
-            android:contentDescription="@string/stop"
-            android:tooltipText="@string/stop"
-            app:icon="@drawable/ic_stop_black_24dp"
-            tools:ignore="UnusedAttribute" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/iv_play_next"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="wrap_content"
-            android:layout_height="50dp"
-            android:contentDescription="@string/next_sentence"
-            android:text="@string/next_sentence"
-            app:icon="@drawable/ic_skip_next"
-            tools:ignore="UnusedAttribute" />
-
-    </com.google.android.material.button.MaterialButtonGroup>
-
-    <io.legado.app.lib.theme.view.ThemeSwitch
-        android:id="@+id/cb_script_brain_enabled"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="58dp"
         android:layout_marginTop="4dp"
-        android:layout_marginBottom="8dp"
-        android:background="@drawable/bg_listen_soft_card"
-        android:contentDescription="内置分析模式"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="8dp"
-        android:text="内置分析模式"
-        tools:ignore="HardcodedText,TouchTargetSizeCheck" />
-
-    <com.google.android.material.button.MaterialButtonGroup
-        android:id="@+id/layout_script_brain_tools"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="0dp"
-        android:layout_marginVertical="6dp"
-        android:orientation="horizontal"
-        android:visibility="gone"
-        android:weightSum="3">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_script_characters"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="角色表"
-            app:icon="@drawable/ic_leaf"
-            tools:ignore="HardcodedText" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_script_preview"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="台词本"
-            app:icon="@drawable/ic_leaf"
-            tools:ignore="HardcodedText" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_script_rules"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="分析规则"
-            app:icon="@drawable/ic_leaf"
-            tools:ignore="HardcodedText" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_script_model_config"
-            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:contentDescription="分析模型配置"
-            android:tooltipText="分析模型配置"
-            app:icon="@drawable/ic_settings"
-            app:iconPadding="0dp"
-            tools:ignore="HardcodedText,UnusedAttribute" />
-
-    </com.google.android.material.button.MaterialButtonGroup>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginVertical="6dp"
-        android:background="@drawable/bg_listen_soft_card"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="4dp">
-
-        <io.legado.app.lib.theme.view.ThemeSlider
-            android:id="@+id/seek_timer"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:valueFrom="0.0"
-            android:valueTo="180.0"
-            android:stepSize="1.0" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/iv_timer"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:contentDescription="@string/set_timer"
-            app:icon="@drawable/ic_time_add_24dp" />
-    </LinearLayout>
-
-
-    <com.google.android.material.button.MaterialButtonGroup
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:weightSum="3"
-        android:layout_marginVertical="8dp">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/tv_pre"
-            style="@style/Widget.Material3Expressive.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:textColor="?attr/colorPrimary"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:minHeight="36dp"
-            android:text="@string/previous_chapter"
-            android:textSize="14sp"
-            app:icon="@drawable/ic_leaf" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_timer"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginHorizontal="6dp"
-            android:layout_weight="1"
-            android:padding="0dp"
-            android:textColor="?attr/colorOnSecondaryContainer"
-            android:text="@string/timer_m" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/tv_next"
-            style="@style/Widget.Material3Expressive.Button.OutlinedButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:textColor="?attr/colorPrimary"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:text="@string/next_chapter"
-            android:textSize="14sp"
-            app:icon="@drawable/ic_leaf" />
-
-    </com.google.android.material.button.MaterialButtonGroup>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginVertical="6dp"
-        android:background="@drawable/bg_listen_soft_card"
-        android:orientation="horizontal"
-        android:paddingHorizontal="8dp"
-        android:paddingVertical="8dp">
-
-        <io.legado.app.lib.theme.view.ThemeSwitch
-            android:id="@+id/cb_audio_preload"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:contentDescription="后台预缓存"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="预缓存"
-            android:textSize="13sp"
-            tools:ignore="TouchTargetSizeCheck" />
-
-        <io.legado.app.lib.theme.view.ThemeSwitch
-            android:id="@+id/cb_audiobook_auto_merge"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:layout_weight="1"
-            android:contentDescription="生成有声书"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="有声书"
-            android:textSize="13sp"
-            tools:ignore="HardcodedText,TouchTargetSizeCheck" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_audiobook_status"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_marginStart="6dp"
-            android:layout_weight="1"
-            android:contentDescription="章节列表"
-            android:ellipsize="end"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:maxLines="1"
-            android:minHeight="0dp"
-            android:minWidth="0dp"
-            android:text="章节列表"
-            android:textSize="13sp"
-            app:icon="@drawable/ic_leaf"
-            tools:ignore="HardcodedText" />
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
-
-        <LinearLayout
-            android:id="@+id/ll_tts_SpeechRate"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
-            android:orientation="horizontal"
-            android:padding="8dp">
-
-            <TextView
-                android:id="@+id/tv_tts_speed"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:text="@string/read_aloud_speed"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/tv_tts_speed_value"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:paddingHorizontal="3dp"
-                android:textSize="14sp" />
-
-            <Space
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_gravity="center"
-                android:layout_weight="1" />
-
-            <io.legado.app.lib.theme.view.ThemeSwitch
-                android:id="@+id/cb_tts_follow_sys"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical"
-                android:contentDescription="@string/flow_sys"
-                android:text="@string/flow_sys"
-                tools:ignore="RtlHardcoded,TouchTargetSizeCheck" />
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingVertical="8dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/iv_tts_speech_reduce"
-                style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/tts_speech_reduce"
-                android:tooltipText="@string/tts_speech_reduce"
-                app:icon="@drawable/ic_reduce"
-                tools:ignore="UnusedAttribute" />
-
-            <io.legado.app.lib.theme.view.ThemeSlider
-                android:id="@+id/seek_tts_speechRate"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:valueFrom="0"
-                android:valueTo="80"
-                android:stepSize="1"/>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/iv_tts_speech_add"
-                style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:contentDescription="@string/tts_speech_add"
-                android:tooltipText="@string/tts_speech_add"
-                app:icon="@drawable/ic_add"
-                tools:ignore="UnusedAttribute" />
-
-        </LinearLayout>
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
         android:baselineAligned="false"
+        android:gravity="center"
         android:orientation="horizontal">
 
         <LinearLayout
             android:id="@+id/ll_catalog"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:contentDescription="@string/chapter_list"
             android:focusable="true"
-            android:orientation="vertical"
-            android:paddingBottom="7dp">
+            android:gravity="center"
+            android:orientation="vertical">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/iv_catalog"
-                android:layout_width="60dp"
-                android:layout_height="wrap_content"
                 style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="36dp"
                 app:icon="@drawable/ic_toc"
-                app:iconGravity="textStart"/>
+                app:iconGravity="textStart"
+                app:iconSize="20dp" />
 
             <TextView
                 android:id="@+id/tv_catalog"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="3dp"
                 android:ellipsize="middle"
                 android:singleLine="true"
                 android:text="@string/chapter_list"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1" />
 
         <LinearLayout
             android:id="@+id/ll_main_menu"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:contentDescription="@string/read_aloud"
             android:focusable="true"
-            android:orientation="vertical"
-            android:paddingBottom="7dp"
-            tools:ignore="TextSizeCheck">
+            android:gravity="center"
+            android:orientation="vertical">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/iv_main_menu"
-                android:layout_width="60dp"
-                android:layout_height="wrap_content"
                 style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="36dp"
                 app:icon="@drawable/ic_menu"
-                app:iconGravity="textStart"/>
+                app:iconGravity="textStart"
+                app:iconSize="20dp" />
 
             <TextView
                 android:id="@+id/tv_main_menu"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="3dp"
                 android:ellipsize="middle"
                 android:singleLine="true"
                 android:text="@string/main_menu"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1" />
 
         <LinearLayout
             android:id="@+id/ll_to_backstage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:contentDescription="@string/to_backstage"
             android:focusable="true"
-            android:orientation="vertical"
-            android:paddingBottom="7dp">
+            android:gravity="center"
+            android:orientation="vertical">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/iv_to_backstage"
-                android:layout_width="60dp"
-                android:layout_height="wrap_content"
                 style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="36dp"
                 app:icon="@drawable/ic_visibility_off"
-                app:iconGravity="textStart"/>
+                app:iconGravity="textStart"
+                app:iconSize="20dp" />
 
             <TextView
                 android:id="@+id/tv_to_backstage"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="3dp"
                 android:ellipsize="middle"
                 android:singleLine="true"
                 android:text="@string/to_backstage"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
-
-        <View
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1" />
 
         <LinearLayout
             android:id="@+id/ll_setting"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:contentDescription="@string/setting"
             android:focusable="true"
-            android:orientation="vertical"
-            android:paddingBottom="7dp">
+            android:gravity="center"
+            android:orientation="vertical">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/iv_setting"
-                android:layout_width="60dp"
-                android:layout_height="wrap_content"
                 style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+                android:layout_width="52dp"
+                android:layout_height="36dp"
                 app:icon="@drawable/ic_settings"
-                app:iconGravity="textStart"/>
+                app:iconGravity="textStart"
+                app:iconSize="20dp" />
 
             <TextView
                 android:id="@+id/tv_setting"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="3dp"
                 android:ellipsize="middle"
                 android:singleLine="true"
                 android:text="@string/setting"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
         </LinearLayout>
 
     </LinearLayout>

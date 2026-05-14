@@ -11,19 +11,10 @@
     </item>
 
     <item
-        android:width="190dp"
-        android:height="108dp"
-        android:gravity="top|end"
-        android:right="0dp"
-        android:top="4dp"
-        android:drawable="@drawable/decor_listen_willow" />
-
-    <item
-        android:width="260dp"
-        android:height="96dp"
-        android:bottom="0dp"
-        android:gravity="bottom|start"
-        android:left="-18dp"
-        android:drawable="@drawable/decor_listen_mountain" />
+        android:gravity="fill">
+        <bitmap
+            android:gravity="fill"
+            android:src="@drawable/listen_panel_bg" />
+    </item>
 
 </layer-list>
