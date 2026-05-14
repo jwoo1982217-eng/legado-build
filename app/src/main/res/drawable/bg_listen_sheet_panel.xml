@@ -17,4 +17,10 @@
             android:src="@drawable/listen_panel_bg" />
     </item>
 
+    <item>
+        <shape>
+            <solid android:color="#DFFFFAF0" />
+        </shape>
+    </item>
+
 </layer-list>

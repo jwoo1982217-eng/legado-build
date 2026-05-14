@@ -33,6 +33,7 @@ import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.get
 import androidx.core.view.size
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.transition.platform.MaterialContainerTransform
@@ -170,6 +171,13 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private enum class GeneratedAudiobookFloatState {
+    NotGenerated,
+    Generating,
+    Ready,
+    Playing
+}
+
 /**
  * 阅读界面
  */
@@ -199,6 +207,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     private var readAloudFloatExpanded = false
     private var readAloudFloatTucked = false
     private var generatedAudiobookFloatActive = false
+    private var generatedAudiobookFloatState = GeneratedAudiobookFloatState.NotGenerated
     private var lastReadAloudChapterStart = -1
 
     private val tocActivity =
@@ -1613,7 +1622,7 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
         binding.aiBgmFloatButton.setIconResource(
-            if (playing) R.drawable.ic_listen_float_pause else R.drawable.ic_listen_float_play
+            if (playing) R.drawable.ic_listen_float_headphones_pause else R.drawable.ic_listen_float_headphones_play
         )
         binding.aiBgmFloatButton.iconTint = null
         binding.aiBgmFloatButton.text = ""
@@ -1679,10 +1688,28 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun updateGeneratedAudiobookFloatButtonState() {
-        val shouldShow = hasCurrentGeneratedChapterAudio() &&
+        generatedAudiobookFloatState = when {
+            generatedAudiobookFloatActive && BaseReadAloudService.isRun -> {
+                GeneratedAudiobookFloatState.Playing
+            }
+
+            hasCurrentGeneratedChapterAudio() -> {
+                GeneratedAudiobookFloatState.Ready
+            }
+
+            generatedAudiobookFloatState == GeneratedAudiobookFloatState.Generating -> {
+                GeneratedAudiobookFloatState.Generating
+            }
+
+            else -> {
+                GeneratedAudiobookFloatState.NotGenerated
+            }
+        }
+        val shouldShow = generatedAudiobookFloatState != GeneratedAudiobookFloatState.NotGenerated &&
                 !generatedAudiobookFloatActive &&
                 !readAloudFloatExpanded &&
                 !readAloudFloatTucked
+        binding.generatedAudiobookFloatButton.applyGeneratedAudiobookFloatState(generatedAudiobookFloatState)
         binding.generatedAudiobookFloatButton.visible(shouldShow)
         if (shouldShow) {
             positionGeneratedAudiobookBubble()
@@ -1747,18 +1774,53 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (anchor.width <= 0 || anchor.height <= 0 || bubble.width <= 0 || bubble.height <= 0) return
         val rootWidth = binding.rootView.width.coerceAtLeast(1)
         val rootHeight = binding.rootView.height.coerceAtLeast(1)
-        val gap = 7.dpToPx()
+        val overlapX = 10.dpToPx()
+        val overlapY = 6.dpToPx()
         val maxX = (rootWidth - bubble.width).coerceAtLeast(0).toFloat()
         val maxY = (rootHeight - bubble.height).coerceAtLeast(0).toFloat()
-        val targetX = (anchor.x + (anchor.width - bubble.width) / 2f).coerceIn(0f, maxX)
-        val belowY = anchor.y + anchor.height + gap
-        val targetY = if (belowY <= maxY) {
-            belowY
+        val targetX = (anchor.x + anchor.width - bubble.width + overlapX).coerceIn(0f, maxX)
+        val attachedY = anchor.y + anchor.height - bubble.height + overlapY
+        val targetY = if (attachedY <= maxY) {
+            attachedY
         } else {
-            (anchor.y - bubble.height - gap).coerceIn(0f, maxY)
+            (anchor.y - overlapY).coerceIn(0f, maxY)
         }
         bubble.x = targetX
         bubble.y = targetY
+    }
+
+    private fun MaterialButton.applyGeneratedAudiobookFloatState(state: GeneratedAudiobookFloatState) {
+        when (state) {
+            GeneratedAudiobookFloatState.NotGenerated -> {
+                setIconResource(R.drawable.ic_generated_audio_play)
+                setBackgroundResource(R.drawable.bg_listen_float_mini)
+                contentDescription = "整章音频未生成"
+                isEnabled = false
+            }
+
+            GeneratedAudiobookFloatState.Generating -> {
+                setIconResource(R.drawable.ic_generated_audio_generating)
+                setBackgroundResource(R.drawable.bg_listen_float_mini_generating)
+                contentDescription = "整章音频生成中"
+                isEnabled = false
+            }
+
+            GeneratedAudiobookFloatState.Ready -> {
+                setIconResource(R.drawable.ic_generated_audio_play)
+                setBackgroundResource(R.drawable.bg_listen_float_mini)
+                contentDescription = "播放整章音频"
+                isEnabled = true
+            }
+
+            GeneratedAudiobookFloatState.Playing -> {
+                setIconResource(R.drawable.ic_generated_audio_pause)
+                setBackgroundResource(R.drawable.bg_listen_float_mini)
+                contentDescription = "整章音频播放中"
+                isEnabled = true
+            }
+        }
+        iconTint = null
+        setTextColor(Color.TRANSPARENT)
     }
 
     private fun positionFloatingPanelNearAnchor(anchor: View, panel: View, bottomGapDp: Int) {
@@ -2912,6 +2974,14 @@ class ReadBookActivity : BaseReadBookActivity(),
             updateAiBgMusicFloatButtonState()
         }
         observeEvent<Boolean>(EventBus.AUDIOBOOK_CACHE_CHANGED) {
+            updateGeneratedAudiobookFloatButtonState()
+        }
+        observeEvent<String>(EventBus.AUDIOBOOK_CACHE_STATUS) { state ->
+            generatedAudiobookFloatState = when (state) {
+                "running" -> GeneratedAudiobookFloatState.Generating
+                "ready" -> GeneratedAudiobookFloatState.Ready
+                else -> GeneratedAudiobookFloatState.NotGenerated
+            }
             updateGeneratedAudiobookFloatButtonState()
         }
         observeEvent<Boolean>(EventBus.REFRESH_BOOK_CONTENT) {

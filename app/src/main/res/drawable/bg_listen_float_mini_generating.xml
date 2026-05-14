@@ -2,36 +2,35 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item
-        android:left="5dp"
-        android:top="7dp"
-        android:right="3dp"
-        android:bottom="1dp">
+        android:left="3dp"
+        android:top="5dp"
+        android:right="1dp">
         <shape android:shape="oval">
-            <solid android:color="#2F4F6F32" />
+            <solid android:color="#2FA6C78A" />
         </shape>
     </item>
 
     <item
-        android:left="2dp"
-        android:top="2dp"
-        android:right="2dp"
-        android:bottom="4dp">
+        android:left="1dp"
+        android:top="1dp"
+        android:right="1dp"
+        android:bottom="3dp">
         <shape android:shape="oval">
             <gradient
                 android:angle="315"
-                android:startColor="#FFFDF4E5"
+                android:startColor="#FFFFF7E8"
                 android:centerColor="#FFE8F1E1"
                 android:endColor="#FFA6C78A" />
         </shape>
     </item>
 
     <item
-        android:left="14dp"
-        android:top="10dp"
-        android:right="24dp"
-        android:bottom="42dp">
+        android:left="8dp"
+        android:top="6dp"
+        android:right="20dp"
+        android:bottom="24dp">
         <shape android:shape="oval">
-            <solid android:color="#80FFFFFF" />
+            <solid android:color="#70FFFFFF" />
         </shape>
     </item>
 

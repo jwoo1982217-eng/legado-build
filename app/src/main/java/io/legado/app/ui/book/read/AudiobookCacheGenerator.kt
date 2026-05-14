@@ -503,6 +503,7 @@ class AudiobookCacheGenerator(
     ) {
         cancelLocal()
         taskId = null
+        postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "running")
 
         val statusView = TextView(context).apply {
             setPadding(24.dpToPx(), 16.dpToPx(), 24.dpToPx(), 8.dpToPx())
@@ -522,6 +523,7 @@ class AudiobookCacheGenerator(
             statusDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
                 val runningTaskId = taskId
                 cancelLocal()
+                postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "idle")
                 if (!runningTaskId.isNullOrBlank()) {
                     coroutineScope.launch(IO) {
                         TtsServerDbBridge.cancelAudiobookGeneration(context, runningTaskId)
@@ -618,10 +620,12 @@ class AudiobookCacheGenerator(
                     }
                     if (final.isReady) {
                         context.toastOnUi("章节音频已生成")
+                        postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "ready")
                         postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
                     }
                 }
             } catch (e: Throwable) {
+                postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "idle")
                 statusView.text = "章节音频生成提交失败：${e.localizedMessage ?: e.javaClass.simpleName}"
             }
         }
@@ -774,7 +778,10 @@ class AudiobookCacheGenerator(
                 if (status.isFinished) {
                     if (status.status.equals("ready", true) || status.status.equals("completed", true)) {
                         context.toastOnUi("有声书缓存已生成")
+                        postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "ready")
                         postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
+                    } else {
+                        postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "idle")
                     }
                     return
                 }
