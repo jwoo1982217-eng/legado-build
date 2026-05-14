@@ -1232,6 +1232,7 @@ class ReadBookActivity : BaseReadBookActivity(),
             ReadBook.readAloud()
         }
         loadStates = true
+        updateGeneratedAudiobookFloatButtonState()
     }
 
     /**
@@ -1706,7 +1707,6 @@ class ReadBookActivity : BaseReadBookActivity(),
             }
         }
         val shouldShow = generatedAudiobookFloatState != GeneratedAudiobookFloatState.NotGenerated &&
-                !generatedAudiobookFloatActive &&
                 !readAloudFloatExpanded &&
                 !readAloudFloatTucked
         binding.generatedAudiobookFloatButton.applyGeneratedAudiobookFloatState(generatedAudiobookFloatState)
@@ -1774,8 +1774,8 @@ class ReadBookActivity : BaseReadBookActivity(),
         if (anchor.width <= 0 || anchor.height <= 0 || bubble.width <= 0 || bubble.height <= 0) return
         val rootWidth = binding.rootView.width.coerceAtLeast(1)
         val rootHeight = binding.rootView.height.coerceAtLeast(1)
-        val overlapX = 10.dpToPx()
-        val overlapY = 6.dpToPx()
+        val overlapX = 4.dpToPx()
+        val overlapY = 4.dpToPx()
         val maxX = (rootWidth - bubble.width).coerceAtLeast(0).toFloat()
         val maxY = (rootHeight - bubble.height).coerceAtLeast(0).toFloat()
         val targetX = (anchor.x + anchor.width - bubble.width + overlapX).coerceIn(0f, maxX)
