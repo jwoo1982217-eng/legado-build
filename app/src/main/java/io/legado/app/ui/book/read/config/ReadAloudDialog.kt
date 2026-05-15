@@ -85,7 +85,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             val raw = speakEngineSummary.trim()
             val match = Regex("""^(.+?)\s*\((.+)\)\s*$""").find(raw)
             return if (match != null) {
-                "朗读引擎 · ${match.groupValues[1].trim()}\n(${match.groupValues[2].trim()})"
+                "朗读引擎 · ${match.groupValues[1].trim()} (${match.groupValues[2].trim()})"
             } else {
                 "朗读引擎 · $raw"
             }
@@ -238,9 +238,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             ?.getNeedReadAloud(0, false, 0)
             .orEmpty()
         val total = chapterText.length.coerceAtLeast(1)
-        val value = (progress.coerceIn(0, total).toFloat() * 100f / total)
-            .coerceIn(binding.seekPlayProgress.valueFrom, binding.seekPlayProgress.valueTo)
-        binding.seekPlayProgress.value = value
+        binding.seekPlayProgress.progress =
+            (progress.coerceIn(0, total).toLong() * binding.seekPlayProgress.max / total).toInt()
     }
 
     private fun initEvent() = binding.run {
@@ -458,7 +457,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             binding.ivPlayPause.contentDescription = getString(R.string.pause)
         } else {
             binding.ivPlayPause.icon =
-                ContextCompat.getDrawable(requireContext(), R.drawable.ic_play)
+                ContextCompat.getDrawable(requireContext(), R.drawable.ic_play_centered)
             binding.ivPlayPause.contentDescription = getString(R.string.audio_play)
         }
 
