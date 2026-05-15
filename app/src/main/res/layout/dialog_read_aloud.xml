@@ -338,6 +338,8 @@
                             android:tooltipText="@string/audio_play"
                             app:backgroundTint="#4F6F32"
                             app:icon="@drawable/ic_play_centered"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp"
                             app:iconSize="28dp"
                             app:iconTint="#FFFFFFFF"
                             tools:ignore="UnusedAttribute" />
@@ -416,25 +418,25 @@
                     android:layout_marginTop="6dp"
                     android:background="@drawable/bg_listen_section_card"
                     android:orientation="vertical"
-                    android:padding="12dp">
+                    android:padding="10dp">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="当前朗读"
                         android:textColor="#333333"
-                        android:textSize="15sp"
+                        android:textSize="14sp"
                         android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/tv_current_read_text"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="6dp"
                         android:includeFontPadding="false"
                         android:ellipsize="end"
-                        android:lineSpacingExtra="2dp"
-                        android:maxLines="2"
+                        android:lineSpacingExtra="0dp"
+                        android:maxLines="1"
                         android:textColor="#5F6658"
                         android:textSize="13sp"
                         tools:text="暮色四合，微风拂过湖面，泛起层层涟漪，远处传来归鸟的鸣叫..." />
@@ -443,47 +445,45 @@
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
+                    android:layout_height="66dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_listen_section_card"
                     android:baselineAligned="false"
-                    android:orientation="horizontal">
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="6dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="78dp"
-                        android:layout_marginEnd="5dp"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
-                        android:background="@drawable/bg_listen_tool_card"
-                        android:gravity="center_vertical"
+                        android:gravity="center"
                         android:orientation="vertical"
-                        android:padding="10dp">
+                        android:paddingHorizontal="2dp">
 
                         <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="30dp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="28dp"
                             android:gravity="center_vertical"
                             android:orientation="horizontal">
 
                             <ImageView
-                                android:layout_width="22dp"
-                                android:layout_height="22dp"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
                                 android:src="@drawable/ic_music_note"
                                 app:tint="#4F6F32" />
 
-                            <Space
-                                android:layout_width="0dp"
-                                android:layout_height="1dp"
-                                android:layout_weight="1" />
-
                             <io.legado.app.lib.theme.view.ThemeSwitch
                                 android:id="@+id/cb_ai_bgm_quick"
-                                android:layout_width="48dp"
-                                android:layout_height="30dp"
+                                android:layout_width="44dp"
+                                android:layout_height="28dp"
+                                android:layout_marginStart="8dp"
                                 android:contentDescription="背景音乐"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"
-                                android:scaleX="0.66"
-                                android:scaleY="0.66"
+                                android:scaleX="0.62"
+                                android:scaleY="0.62"
                                 tools:ignore="TouchTargetSizeCheck" />
 
                         </LinearLayout>
@@ -491,8 +491,10 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="4dp"
                             android:ellipsize="end"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
                             android:maxLines="1"
                             android:text="背景音乐"
                             android:textColor="#333333"
@@ -503,40 +505,34 @@
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="78dp"
-                        android:layout_marginHorizontal="5dp"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
-                        android:background="@drawable/bg_listen_tool_card"
-                        android:gravity="center_vertical"
+                        android:gravity="center"
                         android:orientation="vertical"
-                        android:padding="10dp">
+                        android:paddingHorizontal="2dp">
 
                         <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="30dp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="28dp"
                             android:gravity="center_vertical"
                             android:orientation="horizontal">
 
                             <ImageView
-                                android:layout_width="22dp"
-                                android:layout_height="22dp"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
                                 android:src="@drawable/ic_leaf_simple"
                                 app:tint="#4F6F32" />
 
-                            <Space
-                                android:layout_width="0dp"
-                                android:layout_height="1dp"
-                                android:layout_weight="1" />
-
                             <io.legado.app.lib.theme.view.ThemeSwitch
                                 android:id="@+id/cb_script_brain_enabled_quick"
-                                android:layout_width="48dp"
-                                android:layout_height="30dp"
+                                android:layout_width="44dp"
+                                android:layout_height="28dp"
+                                android:layout_marginStart="8dp"
                                 android:contentDescription="智能分析"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"
-                                android:scaleX="0.66"
-                                android:scaleY="0.66"
+                                android:scaleX="0.62"
+                                android:scaleY="0.62"
                                 tools:ignore="TouchTargetSizeCheck" />
 
                         </LinearLayout>
@@ -544,8 +540,10 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="4dp"
                             android:ellipsize="end"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
                             android:maxLines="1"
                             android:text="智能分析"
                             android:textColor="#333333"
@@ -556,40 +554,34 @@
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="78dp"
-                        android:layout_marginStart="5dp"
+                        android:layout_height="match_parent"
                         android:layout_weight="1"
-                        android:background="@drawable/bg_listen_tool_card"
-                        android:gravity="center_vertical"
+                        android:gravity="center"
                         android:orientation="vertical"
-                        android:padding="10dp">
+                        android:paddingHorizontal="2dp">
 
                         <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="30dp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="28dp"
                             android:gravity="center_vertical"
                             android:orientation="horizontal">
 
                             <ImageView
-                                android:layout_width="22dp"
-                                android:layout_height="22dp"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
                                 android:src="@drawable/ic_book_has"
                                 app:tint="#4F6F32" />
 
-                            <Space
-                                android:layout_width="0dp"
-                                android:layout_height="1dp"
-                                android:layout_weight="1" />
-
                             <io.legado.app.lib.theme.view.ThemeSwitch
                                 android:id="@+id/cb_audiobook_auto_merge_quick"
-                                android:layout_width="48dp"
-                                android:layout_height="30dp"
+                                android:layout_width="44dp"
+                                android:layout_height="28dp"
+                                android:layout_marginStart="8dp"
                                 android:contentDescription="有声书模式"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"
-                                android:scaleX="0.66"
-                                android:scaleY="0.66"
+                                android:scaleX="0.62"
+                                android:scaleY="0.62"
                                 tools:ignore="TouchTargetSizeCheck" />
 
                         </LinearLayout>
@@ -597,8 +589,10 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="4dp"
                             android:ellipsize="end"
+                            android:gravity="center"
+                            android:includeFontPadding="false"
                             android:maxLines="1"
                             android:text="有声书模式"
                             android:textColor="#333333"
