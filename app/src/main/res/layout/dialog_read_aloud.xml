@@ -96,12 +96,14 @@
             android:layout_height="38dp"
             android:layout_gravity="start|center_vertical"
             android:background="@drawable/bg_listen_tab_indicator"
-            android:elevation="1dp" />
+            android:elevation="0dp" />
 
         <LinearLayout
+            android:id="@+id/tab_listen_labels"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:baselineAligned="false"
+            android:elevation="2dp"
             android:gravity="center"
             android:orientation="horizontal"
             android:padding="0dp">
@@ -111,7 +113,6 @@
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:elevation="2dp"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:includeFontPadding="false"
@@ -126,7 +127,6 @@
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:elevation="2dp"
                 android:ellipsize="end"
                 android:gravity="center"
                 android:includeFontPadding="false"

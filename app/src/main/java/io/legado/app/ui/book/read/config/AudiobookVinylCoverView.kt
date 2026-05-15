@@ -46,7 +46,6 @@ class AudiobookVinylCoverView @JvmOverloads constructor(
     private val sleeveRect = RectF()
     private val recordRect = RectF()
     private val centerRect = RectF()
-    private val sideClip = RectF()
 
     private var coverDrawable: Drawable? = null
     private var blurDrawable: Drawable? = null
@@ -117,11 +116,9 @@ class AudiobookVinylCoverView @JvmOverloads constructor(
             recordCy + recordRadius
         )
 
-        drawSideRecord(canvas, recordCy, recordRadius)
         drawSleeve(canvas)
         drawRecord(canvas, recordCx, recordCy, recordRadius)
         drawSleeveDetails(canvas)
-        drawSideOpening(canvas)
     }
 
     private fun drawAtmosphere(canvas: Canvas, viewWidth: Float, viewHeight: Float) {
@@ -150,14 +147,6 @@ class AudiobookVinylCoverView @JvmOverloads constructor(
         fillPaint.shader = null
         canvas.drawRect(0f, 0f, viewWidth, viewHeight, fillPaint)
         fillPaint.alpha = 255
-    }
-
-    private fun drawSideRecord(canvas: Canvas, centerY: Float, radius: Float) {
-        sideClip.set(sleeveRect.right - dp(12f), sleeveRect.top + dp(38f), sleeveRect.right + dp(42f), sleeveRect.bottom - dp(38f))
-        canvas.withSave {
-            clipRect(sideClip)
-            drawRecordDisc(canvas, sleeveRect.right - dp(4f), centerY, radius * 0.94f, rotate = true)
-        }
     }
 
     private fun drawSleeve(canvas: Canvas) {
@@ -336,28 +325,6 @@ class AudiobookVinylCoverView @JvmOverloads constructor(
         textPaint.textSize = sp(7f)
         textPaint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
         canvas.drawText("ENJOY READING", sleeveRect.centerX(), sleeveRect.bottom - dp(20f), textPaint)
-    }
-
-    private fun drawSideOpening(canvas: Canvas) {
-        val notchRadius = dp(18f)
-        val notchCx = sleeveRect.right - dp(4f)
-        val notchCy = sleeveRect.centerY()
-        fillPaint.shader = null
-        fillPaint.color = Color.parseColor("#FAF8F3")
-        fillPaint.alpha = 240
-        canvas.drawCircle(notchCx, notchCy, notchRadius, fillPaint)
-        fillPaint.color = Color.parseColor("#4F6F32")
-        fillPaint.alpha = 255
-        canvas.drawCircle(notchCx + dp(1f), notchCy, dp(10f), fillPaint)
-
-        fillPaint.color = Color.WHITE
-        val arrow = Path().apply {
-            moveTo(notchCx - dp(2f), notchCy - dp(5f))
-            lineTo(notchCx + dp(5f), notchCy)
-            lineTo(notchCx - dp(2f), notchCy + dp(5f))
-            close()
-        }
-        canvas.drawPath(arrow, fillPaint)
     }
 
     private fun drawDrawableCrop(canvas: Canvas, drawable: Drawable, rect: RectF, alpha: Int) {
