@@ -10,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -22,6 +23,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.slider.Slider
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import io.legado.app.R
 import io.legado.app.base.BaseBottomSheetDialogFragment
 import io.legado.app.constant.EventBus
@@ -109,6 +112,19 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     override fun onStart() {
         super.onStart()
+        (dialog as? BottomSheetDialog)?.let { bottomSheetDialog ->
+            bottomSheetDialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { sheet ->
+                sheet.layoutParams = sheet.layoutParams.apply {
+                    height = ViewGroup.LayoutParams.MATCH_PARENT
+                }
+            }
+            bottomSheetDialog.behavior.apply {
+                skipCollapsed = true
+                state = BottomSheetBehavior.STATE_EXPANDED
+                peekHeight = resources.displayMetrics.heightPixels
+                isDraggable = false
+            }
+        }
 //        dialog?.window?.run {
 //            clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
 //            setBackgroundDrawableResource(R.color.background)
@@ -220,10 +236,6 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         btnScriptModelConfig.setOnClickListener { showScriptModelConfig() }
         tvPre.setOnClickListener { ReadBook.moveToPrevChapter(upContent = true, toLast = false) }
         tvNext.setOnClickListener { ReadBook.moveToNextChapter(true) }
-        ivStop.setOnClickListener {
-            ReadAloud.stop(requireContext())
-            dismissAllowingStateLoss()
-        }
         ivPlayPause.setOnClickListener { callBack?.onClickReadAloud() }
         ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
         ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
@@ -232,7 +244,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             callBack?.returnToBookshelf()
             dismissAllowingStateLoss()
         }
-        ivToBackstage.setOnClickListener(toBackstageAction)
+        ivToBackstageNav.setOnClickListener(toBackstageAction)
         llToBackstage.setOnClickListener(toBackstageAction)
         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.ttsFlowSys = isChecked
