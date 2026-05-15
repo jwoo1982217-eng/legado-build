@@ -1375,7 +1375,7 @@ class ReadBookActivity : BaseReadBookActivity(),
                 expandReadAloudFloatPanel()
             }
 
-            BaseReadAloudService.isRun -> showReadAloudDialog()
+            BaseReadAloudService.isRun -> binding.readMenu.runMenuIn()
             isAutoPage -> showDialogFragment<AutoReadDialog>()
             isShowingSearchResult -> binding.searchMenu.runMenuIn()
             else -> binding.readMenu.runMenuIn()
