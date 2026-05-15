@@ -41,6 +41,7 @@ import io.legado.app.model.BookCover
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.service.BaseReadAloudService
+import io.legado.app.service.HttpReadAloudService
 import io.legado.app.ui.book.read.ReadBookActivity
 import io.legado.app.utils.GSON
 import io.legado.app.utils.getPrefBoolean
@@ -190,7 +191,13 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         upTimerText(BaseReadAloudService.timeMinute)
         cbTtsFollowSys.isChecked = requireContext().getPrefBoolean("ttsFollowSys", true)
         setAiBgmEnabled(AiBgMusic.enabled)
-        cbAudioPreload.isChecked = AppConfig.audioPreloadEnabled && AppConfig.audioPreDownloadNum > 0
+        upAudioPreloadState(
+            if (AppConfig.audioPreloadEnabled) {
+                HttpReadAloudService.AUDIO_PRELOAD_RUNNING
+            } else {
+                HttpReadAloudService.AUDIO_PRELOAD_IDLE
+            }
+        )
         setAudiobookAutoMergeEnabled(AppConfig.audiobookAutoMergeAfterRead)
         AppConfig.audiobookConvertMergedToMp3 = true
         setScriptBrainEnabled(AppConfig.scriptBrainEnabled)
@@ -302,19 +309,15 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         cbAiBgm.setOnCheckedChangeListener { _, isChecked -> setAiBgmEnabled(isChecked) }
         cbAiBgmQuick.setOnCheckedChangeListener { _, isChecked -> setAiBgmEnabled(isChecked) }
 
-        cbAudioPreload.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked && AppConfig.audioPreDownloadNum <= 0) {
-                cbAudioPreload.isChecked = false
-                toastOnUi("请先在设置里把听书预加载数量设为大于 0")
-                return@setOnCheckedChangeListener
-            }
-            AppConfig.audioPreloadEnabled = isChecked
-            if (isChecked) {
-                ReadAloud.startAudioPreload(requireContext())
+        val audioPreloadClick = View.OnClickListener {
+            if (AppConfig.audioPreloadEnabled) {
+                stopManualAudioPreload()
             } else {
-                ReadAloud.stopAudioPreload(requireContext())
+                startManualAudioPreload()
             }
         }
+        rowAudioPreload.setOnClickListener(audioPreloadClick)
+        btnAudioPreloadAction.setOnClickListener(audioPreloadClick)
 
         cbAudiobookAutoMerge.setOnCheckedChangeListener { _, isChecked ->
             setAudiobookAutoMergeEnabled(isChecked)
@@ -432,6 +435,65 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         AppConfig.audiobookConvertMergedToMp3 = true
         if (cbAudiobookAutoMerge.isChecked != enabled) cbAudiobookAutoMerge.isChecked = enabled
         if (cbAudiobookAutoMergeQuick.isChecked != enabled) cbAudiobookAutoMergeQuick.isChecked = enabled
+    }
+
+    private fun startManualAudioPreload() {
+        if (AppConfig.audioPreDownloadNum <= 0) {
+            upAudioPreloadState(HttpReadAloudService.AUDIO_PRELOAD_IDLE)
+            toastOnUi("请先在设置里把听书预加载数量设为大于 0")
+            return
+        }
+        if (BaseReadAloudService.isPlay()) {
+            AppConfig.audioPreloadEnabled = false
+            upAudioPreloadState(HttpReadAloudService.AUDIO_PRELOAD_IDLE)
+            toastOnUi("正在朗读中，无需启动预缓存")
+            return
+        }
+        AppConfig.audioPreloadEnabled = true
+        upAudioPreloadState(HttpReadAloudService.AUDIO_PRELOAD_RUNNING)
+        ReadAloud.startAudioPreload(requireContext())
+    }
+
+    private fun stopManualAudioPreload() {
+        AppConfig.audioPreloadEnabled = false
+        upAudioPreloadState(HttpReadAloudService.AUDIO_PRELOAD_IDLE)
+        ReadAloud.stopAudioPreload(requireContext())
+    }
+
+    private fun upAudioPreloadState(state: String) = binding.run {
+        val running = state == HttpReadAloudService.AUDIO_PRELOAD_RUNNING
+        AppConfig.audioPreloadEnabled = running
+        when (state) {
+            HttpReadAloudService.AUDIO_PRELOAD_RUNNING -> {
+                tvAudioPreloadStatus.text = "准备中"
+                tvAudioPreloadStatus.setTextColor(Color.parseColor("#4F6F32"))
+                btnAudioPreloadAction.text = "停止"
+                btnAudioPreloadAction.backgroundTintList =
+                    ColorStateList.valueOf(Color.parseColor("#E8F1E1"))
+                btnAudioPreloadAction.setTextColor(Color.parseColor("#4F6F32"))
+                btnAudioPreloadAction.strokeColor =
+                    ColorStateList.valueOf(Color.parseColor("#A6C78A"))
+                btnAudioPreloadAction.strokeWidth = 1.dpToPx()
+            }
+            HttpReadAloudService.AUDIO_PRELOAD_READY -> {
+                tvAudioPreloadStatus.text = "已准备"
+                tvAudioPreloadStatus.setTextColor(Color.parseColor("#4F6F32"))
+                btnAudioPreloadAction.text = "重备"
+                btnAudioPreloadAction.backgroundTintList =
+                    ColorStateList.valueOf(Color.parseColor("#4F6F32"))
+                btnAudioPreloadAction.setTextColor(Color.WHITE)
+                btnAudioPreloadAction.strokeWidth = 0
+            }
+            else -> {
+                tvAudioPreloadStatus.text = "未准备"
+                tvAudioPreloadStatus.setTextColor(Color.parseColor("#7D8B73"))
+                btnAudioPreloadAction.text = "准备"
+                btnAudioPreloadAction.backgroundTintList =
+                    ColorStateList.valueOf(Color.parseColor("#4F6F32"))
+                btnAudioPreloadAction.setTextColor(Color.WHITE)
+                btnAudioPreloadAction.strokeWidth = 0
+            }
+        }
     }
 
     private fun upTtsSpeechRateEnabled(enabled: Boolean) {
@@ -1981,6 +2043,9 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         observeEvent<Int>(EventBus.READ_ALOUD_DS) {
             val value = it.coerceIn(binding.seekTimer.valueFrom.toInt(), binding.seekTimer.valueTo.toInt())
             binding.seekTimer.value = value.toFloat()
+        }
+        observeEvent<String>(EventBus.AUDIO_PRELOAD_STATUS) {
+            upAudioPreloadState(it)
         }
     }
 

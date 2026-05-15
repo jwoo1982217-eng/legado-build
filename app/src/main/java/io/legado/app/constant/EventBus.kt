@@ -35,6 +35,7 @@ object EventBus {
     const val AI_BGM_PLAY_STATE = "aiBgmPlayState"
     const val AUDIOBOOK_CACHE_CHANGED = "audiobookCacheChanged"
     const val AUDIOBOOK_CACHE_STATUS = "audiobookCacheStatus"
+    const val AUDIO_PRELOAD_STATUS = "audioPreloadStatus"
     const val EXPORT_BOOK = "exportBook"
     const val UP_MANGA_CONFIG = "upMangaConfig"
     const val PLAY_MODE_CHANGED = "playModeChanged"

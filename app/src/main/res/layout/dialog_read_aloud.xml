@@ -749,10 +749,13 @@
                     </LinearLayout>
 
                     <LinearLayout
+                        android:id="@+id/row_audio_preload"
                         android:layout_width="match_parent"
-                        android:layout_height="58dp"
+                        android:layout_height="64dp"
                         android:layout_marginTop="8dp"
                         android:background="@drawable/bg_listen_tool_card"
+                        android:clickable="true"
+                        android:focusable="true"
                         android:gravity="center_vertical"
                         android:orientation="horizontal"
                         android:paddingHorizontal="12dp">
@@ -911,14 +914,46 @@
 
                         </LinearLayout>
 
-                        <io.legado.app.lib.theme.view.ThemeSwitch
-                            android:id="@+id/cb_audio_preload"
+                        <LinearLayout
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:contentDescription="预缓存"
-                            android:scaleX="0.72"
-                            android:scaleY="0.72"
-                            tools:ignore="TouchTargetSizeCheck" />
+                            android:gravity="end|center_vertical"
+                            android:orientation="horizontal">
+
+                            <TextView
+                                android:id="@+id/tv_audio_preload_status"
+                                android:layout_width="wrap_content"
+                                android:layout_height="28dp"
+                                android:layout_marginEnd="8dp"
+                                android:background="@drawable/bg_listen_nav_selected"
+                                android:gravity="center"
+                                android:minWidth="54dp"
+                                android:paddingHorizontal="10dp"
+                                android:text="未准备"
+                                android:textColor="#7D8B73"
+                                android:textSize="12sp"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_audio_preload_action"
+                                style="@style/Widget.Material3.Button"
+                                android:layout_width="72dp"
+                                android:layout_height="36dp"
+                                android:contentDescription="预缓存"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingHorizontal="10dp"
+                                android:text="准备"
+                                android:textSize="13sp"
+                                android:textStyle="bold"
+                                app:backgroundTint="#4F6F32"
+                                app:cornerRadius="18dp"
+                                app:strokeColor="#4F6F32"
+                                app:strokeWidth="0dp" />
+
+                        </LinearLayout>
 
                     </LinearLayout>
 

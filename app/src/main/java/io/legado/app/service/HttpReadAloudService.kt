@@ -28,6 +28,7 @@ import com.script.ScriptException
 import io.legado.app.R
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
+import io.legado.app.constant.EventBus
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
@@ -48,6 +49,7 @@ import io.legado.app.ui.book.read.page.entities.TextChapter
 import io.legado.app.utils.FileUtils
 import io.legado.app.utils.MD5Utils
 import io.legado.app.utils.printOnDebug
+import io.legado.app.utils.postEvent
 import io.legado.app.utils.servicePendingIntent
 import io.legado.app.utils.toastOnUi
 import kotlinx.coroutines.CancellationException
@@ -241,10 +243,13 @@ class HttpReadAloudService : BaseReadAloudService(),
     ) {
         val book = ReadBook.book ?: return
         if (!AppConfig.audioPreloadEnabled || AppConfig.audioPreDownloadNum <= 0) {
+            postEvent(EventBus.AUDIO_PRELOAD_STATUS, AUDIO_PRELOAD_IDLE)
             return
         }
         if (downloadTask?.isActive == true) {
             AppLog.putDebug("当前朗读音频队列生成中，后台预缓存稍后启动。")
+            AppConfig.audioPreloadEnabled = false
+            postEvent(EventBus.AUDIO_PRELOAD_STATUS, AUDIO_PRELOAD_IDLE)
             return
         }
         val windowKey = listOf(
@@ -261,9 +266,13 @@ class HttpReadAloudService : BaseReadAloudService(),
         backgroundPreloadTask?.cancel()
         backgroundPreloadWindowKey = windowKey
         val taskToken = ++backgroundPreloadToken
+        AppConfig.audioPreloadEnabled = true
+        postEvent(EventBus.AUDIO_PRELOAD_STATUS, AUDIO_PRELOAD_RUNNING)
         backgroundPreloadTask = execute {
+            var completed = false
             runCatching {
                 preDownloadAudios(httpTts, book, startChapterIndex)
+                completed = true
             }.onFailure {
                 if (it !is CancellationException) {
                     AppLog.put("有声书后台预缓存异常: ${it.localizedMessage}", it)
@@ -272,6 +281,11 @@ class HttpReadAloudService : BaseReadAloudService(),
                 if (backgroundPreloadWindowKey == windowKey && backgroundPreloadToken == taskToken) {
                     backgroundPreloadWindowKey = null
                     backgroundPreloadTask = null
+                    AppConfig.audioPreloadEnabled = false
+                    postEvent(
+                        EventBus.AUDIO_PRELOAD_STATUS,
+                        if (completed) AUDIO_PRELOAD_READY else AUDIO_PRELOAD_IDLE
+                    )
                 }
             }
         }
@@ -282,6 +296,8 @@ class HttpReadAloudService : BaseReadAloudService(),
         backgroundPreloadTask = null
         backgroundPreloadWindowKey = null
         backgroundPreloadToken++
+        AppConfig.audioPreloadEnabled = false
+        postEvent(EventBus.AUDIO_PRELOAD_STATUS, AUDIO_PRELOAD_IDLE)
     }
 
     private suspend fun preDownloadAudios(httpTts: HttpTTS, book: Book, startChapterIndex: Int) {
@@ -852,6 +868,8 @@ class HttpReadAloudService : BaseReadAloudService(),
 
     protected override fun startAudioPreloadByCommand() {
         if (!pause) {
+            AppConfig.audioPreloadEnabled = false
+            postEvent(EventBus.AUDIO_PRELOAD_STATUS, AUDIO_PRELOAD_IDLE)
             AppLog.putDebug("正在朗读中，后台预缓存不再并行启动。")
             toastOnUi("正在朗读中，无需启动预缓存")
             return
@@ -865,6 +883,12 @@ class HttpReadAloudService : BaseReadAloudService(),
     protected override fun stopAudioPreloadByCommand() {
         stopBackgroundPreload()
         AppLog.putDebug("已手动暂停后台预缓存。")
+    }
+
+    companion object {
+        const val AUDIO_PRELOAD_IDLE = "idle"
+        const val AUDIO_PRELOAD_RUNNING = "running"
+        const val AUDIO_PRELOAD_READY = "ready"
     }
 
     protected override fun playGeneratedChapterByCommand() {
