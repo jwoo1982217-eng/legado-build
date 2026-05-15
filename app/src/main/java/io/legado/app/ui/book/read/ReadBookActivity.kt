@@ -35,6 +35,7 @@ import androidx.core.view.get
 import androidx.core.view.size
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.transition.platform.MaterialContainerTransform
 import com.google.android.material.transition.platform.MaterialContainerTransformSharedElementCallback
@@ -1584,6 +1585,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         binding.readAloudPageChoiceChip.visible(true)
         positionBottomChip(binding.readAloudPageChoiceChip, 18)
         handler.postDelayed({
+            if (!isReadBookUiAlive()) return@postDelayed
             if (binding.readAloudPageChoiceChip.visibility == View.VISIBLE) {
                 hideReadAloudPageChoice()
                 updateAiBgMusicFloatButtonState()
@@ -1645,6 +1647,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun updateAiBgMusicFloatButtonState(playing: Boolean = BaseReadAloudService.isPlay()) {
+        if (!isReadBookUiAlive()) return
         binding.aiBgmFloatButton.setIconResource(R.drawable.ic_listen_float_headphones)
         binding.aiBgmFloatButton.iconTint = null
         binding.aiBgmFloatButton.text = ""
@@ -1935,6 +1938,7 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun updateFloatingCoverRotation(playing: Boolean) {
+        if (!isReadBookUiAlive()) return
         readAloudFloatCoverAnimator = updateCoverRotationAnimator(
             binding.readAloudFloatCover,
             readAloudFloatCoverAnimator,
@@ -1973,11 +1977,22 @@ class ReadBookActivity : BaseReadBookActivity(),
     }
 
     private fun loadFloatingPlayerCovers() {
+        if (!isReadBookUiAlive()) return
         val book = ReadBook.book
         val cover = book?.getDisplayCover()
         val origin = book?.origin
-        BookCover.load(this, cover, loadOnlyWifi = false, sourceOrigin = origin)
-            .into(binding.readAloudFloatCover)
+        kotlin.runCatching {
+            BookCover.load(this, cover, loadOnlyWifi = false, sourceOrigin = origin)
+                .into(binding.readAloudFloatCover)
+        }.onFailure {
+            AppLog.putDebug("跳过听书浮窗封面加载：页面已关闭或封面请求不可用。${it.localizedMessage.orEmpty()}")
+        }
+    }
+
+    private fun isReadBookUiAlive(): Boolean {
+        return !isFinishing &&
+                !isDestroyed &&
+                lifecycle.currentState != Lifecycle.State.DESTROYED
     }
 
     private fun showAiBgMusicMenu(anchor: View) {
