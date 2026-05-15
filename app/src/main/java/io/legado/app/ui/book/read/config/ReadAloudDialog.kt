@@ -23,7 +23,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -37,7 +36,6 @@ import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.dialogs.SelectItem
 import io.legado.app.lib.dialogs.selector
 import io.legado.app.model.AiBgMusic
-import io.legado.app.model.BookCover
 import io.legado.app.model.ReadAloud
 import io.legado.app.model.ReadBook
 import io.legado.app.service.BaseReadAloudService
@@ -86,7 +84,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             val raw = speakEngineSummary.trim()
             val match = Regex("""^(.+?)\s*\((.+)\)\s*$""").find(raw)
             return if (match != null) {
-                "朗读引擎 · ${match.groupValues[1].trim()} (${match.groupValues[2].trim()})"
+                "朗读引擎 · ${match.groupValues[1].trim()}"
             } else {
                 "朗读引擎 · $raw"
             }
@@ -214,12 +212,13 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         listenChapterTitle.text = ReadBook.curTextChapter?.title.orEmpty()
             .ifBlank { "当前章节" }
         listenEngineSummary.text = listenEngineSummaryText
-        BookCover.load(
-            requireContext(),
-            book?.getDisplayCover(),
-            loadOnlyWifi = false,
+        listenVinylCover.bindCover(
+            bookTitle = listenBookTitle.text?.toString().orEmpty(),
+            chapterTitle = listenChapterTitle.text?.toString().orEmpty(),
+            coverPath = book?.getDisplayCover(),
             sourceOrigin = book?.origin
-        ).into(listenCover)
+        )
+        listenVinylCover.setPlaying(BaseReadAloudService.isPlay())
     }
 
     private fun upCurrentReadText(progress: Int = ReadBook.durChapterPos) {
@@ -227,7 +226,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             ?.getNeedReadAloud(0, false, 0)
             .orEmpty()
         val text = if (chapterText.isBlank()) {
-            "暂无正在朗读的内容"
+            "等待朗读内容"
         } else {
             val start = progress.coerceIn(0, chapterText.length)
             chapterText.substring(start)
@@ -235,7 +234,7 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
                 .map { it.trim() }
                 .firstOrNull { it.isNotBlank() }
                 ?: chapterText.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }
-                ?: "暂无正在朗读的内容"
+                ?: "等待朗读内容"
         }
         binding.tvCurrentReadText.text = text
     }
@@ -406,15 +405,29 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         bottomSheetTitle.text = if (settings) "听书设置" else "听书"
         btnPageSettings.visible(!settings)
         btnSpeakEngineSetting.visible(settings)
-        setTabState(tabListenPlay, !settings)
-        setTabState(tabListenSettings, settings)
+        updateListenTab(settings)
     }
 
-    private fun setTabState(button: MaterialButton, selected: Boolean) {
-        val bgColor = if (selected) "#4F6F32" else "#F7F2EA"
-        val textColor = if (selected) "#FFFFFF" else "#4F6F32"
-        button.backgroundTintList = ColorStateList.valueOf(Color.parseColor(bgColor))
-        button.setTextColor(Color.parseColor(textColor))
+    private fun updateListenTab(settings: Boolean) = binding.run {
+        tabListenPlay.setTextColor(Color.parseColor(if (settings) "#4F6F32" else "#FFFFFF"))
+        tabListenSettings.setTextColor(Color.parseColor(if (settings) "#FFFFFF" else "#4F6F32"))
+        tabListenContainer.post {
+            val availableWidth = tabListenContainer.width -
+                    tabListenContainer.paddingLeft -
+                    tabListenContainer.paddingRight
+            if (availableWidth <= 0) return@post
+            val indicatorWidth = availableWidth / 2
+            val lp = tabListenIndicator.layoutParams
+            if (lp.width != indicatorWidth) {
+                lp.width = indicatorWidth
+                tabListenIndicator.layoutParams = lp
+            }
+            val targetX = if (settings) indicatorWidth.toFloat() else 0f
+            tabListenIndicator.animate()
+                .translationX(targetX)
+                .setDuration(180L)
+                .start()
+        }
     }
 
     private fun setAiBgmEnabled(enabled: Boolean) = binding.run {
@@ -517,10 +530,12 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             binding.ivPlayPause.icon =
                 ContextCompat.getDrawable(requireContext(), R.drawable.ic_pause)
             binding.ivPlayPause.contentDescription = getString(R.string.pause)
+            binding.listenVinylCover.setPlaying(true)
         } else {
             binding.ivPlayPause.icon =
                 ContextCompat.getDrawable(requireContext(), R.drawable.ic_play_centered)
             binding.ivPlayPause.contentDescription = getString(R.string.audio_play)
+            binding.listenVinylCover.setPlaying(false)
         }
 
         // val bg = requireContext().bottomBackground

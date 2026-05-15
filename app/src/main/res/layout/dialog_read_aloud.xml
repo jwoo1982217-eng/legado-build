@@ -80,56 +80,65 @@
 
     </FrameLayout>
 
-    <LinearLayout
+    <FrameLayout
+        android:id="@+id/tab_listen_container"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginBottom="6dp"
+        android:layout_height="48dp"
+        android:layout_marginBottom="4dp"
         android:background="@drawable/bg_listen_tool_card"
-        android:baselineAligned="false"
-        android:gravity="center"
-        android:orientation="horizontal"
+        android:clipChildren="false"
+        android:clipToPadding="false"
         android:padding="5dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/tab_listen_play"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
+        <View
+            android:id="@+id/tab_listen_indicator"
             android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minHeight="0dp"
-            android:paddingTop="0dp"
-            android:paddingBottom="0dp"
-            android:singleLine="true"
-            android:text="听书播放"
-            android:textSize="13sp"
-            app:backgroundTint="#4F6F32" />
+            android:layout_height="38dp"
+            android:layout_gravity="start|center_vertical"
+            android:background="@drawable/bg_listen_tab_indicator"
+            android:elevation="1dp" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/tab_listen_settings"
-            style="@style/Widget.Material3Expressive.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_marginStart="4dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:baselineAligned="false"
             android:gravity="center"
-            android:includeFontPadding="false"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minHeight="0dp"
-            android:paddingTop="0dp"
-            android:paddingBottom="0dp"
-            android:singleLine="true"
-            android:text="听书设置"
-            android:textSize="13sp"
-            app:backgroundTint="#F7F2EA" />
+            android:orientation="horizontal"
+            android:padding="0dp">
 
-    </LinearLayout>
+            <TextView
+                android:id="@+id/tab_listen_play"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:elevation="2dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="听书播放"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tab_listen_settings"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:elevation="2dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="听书设置"
+                android:textColor="#4F6F32"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+        </LinearLayout>
+
+    </FrameLayout>
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -151,33 +160,13 @@
                 android:gravity="center_horizontal"
                 android:orientation="vertical">
 
-                <FrameLayout
-                    android:layout_width="214dp"
-                    android:layout_height="174dp"
+                <io.legado.app.ui.book.read.config.AudiobookVinylCoverView
+                    android:id="@+id/listen_vinyl_cover"
+                    android:layout_width="match_parent"
+                    android:layout_height="278dp"
                     android:layout_marginTop="2dp"
                     android:clipChildren="false"
-                    android:clipToPadding="false">
-
-                    <View
-                        android:layout_width="132dp"
-                        android:layout_height="132dp"
-                        android:layout_gravity="end|center_vertical"
-                        android:alpha="0.96"
-                        android:background="@drawable/bg_listen_record" />
-
-                    <ImageView
-                        android:id="@+id/listen_cover"
-                        android:layout_width="158dp"
-                        android:layout_height="158dp"
-                        android:layout_gravity="start|center_vertical"
-                        android:background="@drawable/bg_listen_cover_frame"
-                        android:clipToOutline="true"
-                        android:contentDescription="封面"
-                        android:elevation="3dp"
-                        android:padding="2dp"
-                        android:scaleType="centerCrop" />
-
-                </FrameLayout>
+                    android:clipToPadding="false" />
 
                 <TextView
                     android:id="@+id/listen_chapter_title"
