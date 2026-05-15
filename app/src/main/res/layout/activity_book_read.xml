@@ -114,7 +114,7 @@
 
     <LinearLayout
         android:id="@+id/read_aloud_float_panel"
-        android:layout_width="292dp"
+        android:layout_width="320dp"
         android:layout_height="68dp"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="18dp"
@@ -127,8 +127,8 @@
 
         <ImageView
             android:id="@+id/read_aloud_float_cover"
-            android:layout_width="54dp"
-            android:layout_height="54dp"
+            android:layout_width="50dp"
+            android:layout_height="50dp"
             android:background="@drawable/bg_listen_float_mini"
             android:clipToOutline="true"
             android:contentDescription="打开听书设置"
@@ -140,7 +140,7 @@
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -166,8 +166,8 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/read_aloud_float_play_button"
             style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
             android:background="@drawable/bg_ai_bgm_fab"
             android:contentDescription="暂停或继续朗读"
             android:elevation="0dp"
@@ -186,13 +186,13 @@
             app:iconSize="22dp" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/read_aloud_float_close_button"
+            android:id="@+id/read_aloud_float_stop_button"
             style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="2dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="4dp"
             android:background="@drawable/bg_ai_bgm_fab"
-            android:contentDescription="停止播放并回到听书入口"
+            android:contentDescription="停止播放"
             android:elevation="0dp"
             android:insetLeft="0dp"
             android:insetTop="0dp"
@@ -202,11 +202,34 @@
             android:minHeight="0dp"
             android:padding="0dp"
             app:backgroundTint="@null"
-            app:cornerRadius="20dp"
+            app:cornerRadius="18dp"
+            app:icon="@drawable/ic_stop_black_24dp"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="18dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/read_aloud_float_close_button"
+            style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="2dp"
+            android:background="@drawable/bg_ai_bgm_fab"
+            android:contentDescription="收起播放器"
+            android:elevation="0dp"
+            android:insetLeft="0dp"
+            android:insetTop="0dp"
+            android:insetRight="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:padding="0dp"
+            app:backgroundTint="@null"
+            app:cornerRadius="18dp"
             app:icon="@drawable/ic_baseline_close"
             app:iconGravity="textStart"
             app:iconPadding="0dp"
-            app:iconSize="20dp" />
+            app:iconSize="18dp" />
     </LinearLayout>
 
     <LinearLayout

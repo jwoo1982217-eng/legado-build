@@ -1415,11 +1415,17 @@ class ReadBookActivity : BaseReadBookActivity(),
             hideReadAloudPageChoice()
             toggleReadAloudPlaybackOnly()
         }
-        binding.readAloudFloatCloseButton.setOnClickListener {
+        binding.readAloudFloatStopButton.setOnClickListener {
             ReadAloud.stop(this)
             readAloudFloatExpanded = false
             readAloudFloatTucked = false
             generatedAudiobookFloatActive = false
+            hideReadAloudPageChoice()
+            updateAiBgMusicFloatButtonState()
+        }
+        binding.readAloudFloatCloseButton.setOnClickListener {
+            readAloudFloatExpanded = false
+            readAloudFloatTucked = false
             hideReadAloudPageChoice()
             updateAiBgMusicFloatButtonState()
         }
@@ -1677,6 +1683,12 @@ class ReadBookActivity : BaseReadBookActivity(),
             setTextColor(Color.WHITE)
             rippleColor = ColorStateList.valueOf(ripple)
             this.background = createAiBgMusicFloatButtonBackground(background)
+        }
+        binding.readAloudFloatStopButton.apply {
+            iconTint = ColorStateList.valueOf(Color.rgb(0xDE, 0x37, 0x2E))
+            setTextColor(Color.rgb(0xDE, 0x37, 0x2E))
+            rippleColor = ColorStateList.valueOf(Color.argb(0x26, 0xDE, 0x37, 0x2E))
+            this.background = createAiBgMusicFloatButtonBackground(Color.rgb(0xFF, 0xEF, 0xEA))
         }
         binding.readAloudFloatCloseButton.apply {
             iconTint = ColorStateList.valueOf(foreground)
