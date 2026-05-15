@@ -192,7 +192,7 @@
             android:layout_height="40dp"
             android:layout_marginStart="2dp"
             android:background="@drawable/bg_ai_bgm_fab"
-            android:contentDescription="停止朗读"
+            android:contentDescription="停止播放并回到听书入口"
             android:elevation="0dp"
             android:insetLeft="0dp"
             android:insetTop="0dp"

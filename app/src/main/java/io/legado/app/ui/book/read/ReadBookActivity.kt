@@ -1642,8 +1642,7 @@ class ReadBookActivity : BaseReadBookActivity(),
         binding.aiBgmFloatButton.setIconResource(R.drawable.ic_listen_float_headphones)
         binding.aiBgmFloatButton.iconTint = null
         binding.aiBgmFloatButton.text = ""
-        binding.aiBgmFloatButton.contentDescription =
-            if (playing) "打开朗读播放器" else "开始朗读"
+        binding.aiBgmFloatButton.contentDescription = "打开听书播放器"
         updateFloatingPlayerText()
         updateAiBgMusicFloatButtonAppearance()
         updateFloatingPlayerVisibility()
@@ -1916,26 +1915,9 @@ class ReadBookActivity : BaseReadBookActivity(),
 
     private fun updateAiBgMusicFloatButtonRotation(playing: Boolean) {
         val button = binding.aiBgmFloatButton
-        if (playing) {
-            if (aiBgMusicFloatAnimator?.isStarted == true) return
-            aiBgMusicFloatAnimator?.cancel()
-            aiBgMusicFloatAnimator = ObjectAnimator.ofFloat(
-                button,
-                View.ROTATION,
-                button.rotation,
-                button.rotation + 360f
-            ).apply {
-                duration = 6000L
-                repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.RESTART
-                interpolator = LinearInterpolator()
-                start()
-            }
-        } else {
-            aiBgMusicFloatAnimator?.cancel()
-            aiBgMusicFloatAnimator = null
-            button.animate().rotation(0f).setDuration(180L).start()
-        }
+        aiBgMusicFloatAnimator?.cancel()
+        aiBgMusicFloatAnimator = null
+        button.animate().rotation(0f).setDuration(if (playing) 120L else 180L).start()
     }
 
     private fun updateFloatingCoverRotation(playing: Boolean) {
