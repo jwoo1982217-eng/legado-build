@@ -230,6 +230,7 @@ object TtsServerDbBridge {
         chapter: AudiobookChapter,
         sessionId: String,
         contentHash: String,
+        chapterContextUri: Uri,
         preferredFormat: String = "wav",
         onProgress: (Int) -> Unit = {}
     ): Result<AudiobookChapterExport> {
@@ -238,7 +239,8 @@ object TtsServerDbBridge {
         val requestId = "jread_export_${chapter.chapterIndex}_${System.currentTimeMillis()}_${UUID.randomUUID()}"
         AppLog.putDebug(
             "[JRead-JTTS] send export intent requestId=$requestId " +
-                    "sessionId=$sessionId hash=$contentHash preferredFormat=$preferredFormat"
+                    "sessionId=$sessionId hash=$contentHash preferredFormat=$preferredFormat " +
+                    "chapterContextUri=$chapterContextUri"
         )
         return withTimeout(30 * 60 * 1000L) {
             suspendCancellableCoroutine { cont ->
@@ -292,12 +294,21 @@ object TtsServerDbBridge {
 
                 val intent = Intent(ACTION_EXPORT_CHAPTER_AUDIO).apply {
                     setPackage(TTS_PACKAGE)
+                    data = chapterContextUri
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    putExtra("method", "exportAudiobookChapter")
                     putExtra("requestId", requestId)
                     putExtra("sessionId", sessionId)
                     putExtra("contentHash", contentHash)
                     putExtra("callerPackage", app.packageName)
                     putExtra("preferredFormat", preferredFormat)
+                    putExtra("chapterContextUri", chapterContextUri.toString())
                 }
+                app.grantUriPermission(
+                    TTS_PACKAGE,
+                    chapterContextUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
                 val startResult = runCatching {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         app.startForegroundService(intent)

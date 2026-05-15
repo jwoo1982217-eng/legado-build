@@ -8,7 +8,6 @@ import io.legado.app.constant.AppConst
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.AppPattern
 import io.legado.app.exception.NoStackTraceException
-import io.legado.app.help.JttsContextBridge
 import io.legado.app.help.MediaHelp
 import io.legado.app.help.TtsServerDbBridge
 import io.legado.app.help.config.AppConfig
@@ -57,8 +56,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
         }
         currentEngine = engine
         AppLog.putDebug(
-            "[JRead-JTTS] bridge enabled=${JttsContextBridge.isEnabledForEngine(engine)} " +
-                    "current engine=$engine"
+            "[JRead-JTTS] realtime direct engine=$engine"
         )
         if (TtsServerDbBridge.isJttsEngine(engine)) {
             TtsServerDbBridge.ensureRunning(this)
@@ -118,54 +116,23 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
             LogUtils.d(TAG, "朗读页数 ${textChapter?.pageSize}")
             val tts = textToSpeech ?: throw NoStackTraceException("tts is null")
             val contentList = contentList
-            val jttsContext = if (JttsContextBridge.isEnabledForEngine(currentEngine)) {
-                JttsContextBridge.prepareChapterContext(ReadBook.book, textChapter)
-            } else {
-                null
-            }
             var nextQueueMode = TextToSpeech.QUEUE_FLUSH
-            var queuedReadOffset = readAloudNumber
             var isAddedText = false
             for (i in nowSpeak until contentList.size) {
                 ensureActive()
-                val rawText = contentList[i]
                 val firstOffset = if (i == nowSpeak) paragraphStartPos else 0
                 var text = contentList[i]
                 if (firstOffset > 0) {
                     text = text.substring(firstOffset)
                 }
                 if (text.matches(AppPattern.notReadAloudRegex)) {
-                    queuedReadOffset += rawText.length + 1 - firstOffset
                     continue
                 }
                 if (!isAddedText) {
-                    if (jttsContext?.shouldSend == true) {
-                        val sent = sendJttsContextChunks(tts, jttsContext, nextQueueMode)
-                        if (sent) {
-                            JttsContextBridge.markContextSent(jttsContext)
-                            nextQueueMode = TextToSpeech.QUEUE_ADD
-                        }
-                    }
-                }
-                val startOffset = queuedReadOffset
-                val endOffset = startOffset + text.length
-                if (jttsContext != null) {
-                    val pointerSent = sendJttsPointer(
-                        tts = tts,
-                        context = jttsContext,
-                        text = text,
-                        startOffset = startOffset,
-                        endOffset = endOffset,
-                        utteranceIndex = i,
-                        queueMode = nextQueueMode
-                    )
-                    if (pointerSent) {
-                        nextQueueMode = TextToSpeech.QUEUE_ADD
-                    }
-                }
-                if (!isAddedText) {
                     val result = tts.runCatching {
-                        AppLog.putDebug("[JRead-JTTS] speak body after pointer textLen=${text.length}")
+                        if (TtsServerDbBridge.isJttsEngine(currentEngine)) {
+                            AppLog.putDebug("[JRead-JTTS] realtime speak direct textLen=${text.length}")
+                        }
                         speak(text, nextQueueMode, null, AppConst.APP_TAG + i)
                     }.getOrElse {
                         AppLog.put("tts出错\n${it.localizedMessage}", it, true)
@@ -189,7 +156,6 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                     }
                 }
                 nextQueueMode = TextToSpeech.QUEUE_ADD
-                queuedReadOffset += rawText.length + 1 - firstOffset
                 isAddedText = true
             }
             LogUtils.d(TAG, "朗读内容添加完成")
@@ -201,81 +167,6 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
         }.onError {
             AppLog.put("tts朗读出错\n${it.localizedMessage}", it, true)
         }
-    }
-
-    private fun sendJttsContextChunks(
-        tts: TextToSpeech,
-        context: JttsContextBridge.ChapterContext,
-        firstQueueMode: Int
-    ): Boolean {
-        var queueMode = firstQueueMode
-                for ((index, chunk) in context.chunks.withIndex()) {
-            val result = tts.runCatching {
-                speak(
-                    chunk,
-                    queueMode,
-                    null,
-                    JttsContextBridge.chunkUtteranceId(context, index)
-                )
-            }.getOrElse {
-                AppLog.putDebug("J.TTS 无 Web 上下文直通：分片发送异常 ${it.localizedMessage.orEmpty()}")
-                TextToSpeech.ERROR
-            }
-            if (result == TextToSpeech.ERROR) {
-                AppLog.putDebug(
-                    "J.TTS 无 Web 上下文直通：分片发送失败 " +
-                            "book=${context.bookName}, chapter=${context.chapterTitle}, index=$index"
-                )
-                return false
-            }
-            AppLog.putDebug(
-                "[JRead-JTTS] send ctx chunk ${index + 1}/${context.chunks.size} " +
-                        "utteranceId=${JttsContextBridge.chunkUtteranceId(context, index)}"
-            )
-            queueMode = TextToSpeech.QUEUE_ADD
-        }
-        return true
-    }
-
-    private fun sendJttsPointer(
-        tts: TextToSpeech,
-        context: JttsContextBridge.ChapterContext,
-        text: String,
-        startOffset: Int,
-        endOffset: Int,
-        utteranceIndex: Int,
-        queueMode: Int
-    ): Boolean {
-        val marker = JttsContextBridge.pointerMarker(
-            context = context,
-            currentText = text,
-            startOffset = startOffset,
-            endOffset = endOffset,
-            fallbackChapterIndex = textChapter?.chapter?.index ?: -1
-        ) ?: return false
-        val result = tts.runCatching {
-            speak(
-                marker,
-                queueMode,
-                null,
-                JttsContextBridge.pointerUtteranceId(context, utteranceIndex)
-            )
-        }.getOrElse {
-            AppLog.putDebug("J.TTS 无 Web 指针发送异常 ${it.localizedMessage.orEmpty()}")
-            TextToSpeech.ERROR
-        }
-        if (result == TextToSpeech.ERROR) {
-            AppLog.putDebug(
-                "J.TTS 无 Web 指针发送失败 " +
-                        "chapter=${context.chapterTitle}, start=$startOffset, end=$endOffset"
-            )
-            return false
-        }
-        AppLog.putDebug(
-            "[JRead-JTTS] send pointer sessionId=${context.sessionId} " +
-                    "start=$startOffset end=$endOffset textLen=${text.length}"
-        )
-        return true
     }
 
     override fun playStop() {
@@ -326,10 +217,6 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
         private val TAG = "TTSUtteranceListener"
 
         override fun onStart(s: String) {
-            if (JttsContextBridge.isBridgeUtterance(s)) {
-                LogUtils.d(TAG, "onStart bridge utteranceId:$s")
-                return
-            }
             LogUtils.d(TAG, "onStart nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$s")
             textChapter?.let {
                 if (contentList[nowSpeak].matches(AppPattern.notReadAloudRegex)) {
@@ -346,20 +233,12 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
         }
 
         override fun onDone(s: String) {
-            if (JttsContextBridge.isBridgeUtterance(s)) {
-                LogUtils.d(TAG, "onDone bridge utteranceId:$s")
-                return
-            }
             LogUtils.d(TAG, "onDone utteranceId:$s")
             nextParagraph()
         }
 
         override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
             super.onRangeStart(utteranceId, start, end, frame)
-            if (JttsContextBridge.isBridgeUtterance(utteranceId)) {
-                LogUtils.d(TAG, "onRangeStart bridge utteranceId:$utteranceId start:$start end:$end")
-                return
-            }
             val msg =
                 "onRangeStart nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId start:$start end:$end frame:$frame"
             LogUtils.d(TAG, msg)
@@ -375,10 +254,6 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
         }
 
         override fun onError(utteranceId: String?, errorCode: Int) {
-            if (JttsContextBridge.isBridgeUtterance(utteranceId)) {
-                LogUtils.d(TAG, "onError bridge utteranceId:$utteranceId errorCode:$errorCode")
-                return
-            }
             LogUtils.d(
                 TAG,
                 "onError nowSpeak:$nowSpeak pageIndex:$pageIndex utteranceId:$utteranceId errorCode:$errorCode"
@@ -402,10 +277,6 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
 
         @Deprecated("Deprecated in Java")
         override fun onError(s: String) {
-            if (JttsContextBridge.isBridgeUtterance(s)) {
-                LogUtils.d(TAG, "onError bridge utteranceId:$s")
-                return
-            }
             LogUtils.d(TAG, "onError nowSpeak:$nowSpeak pageIndex:$pageIndex s:$s")
             nextParagraph()
         }

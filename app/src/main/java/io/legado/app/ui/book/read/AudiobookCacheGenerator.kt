@@ -15,7 +15,7 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookSource
 import io.legado.app.exception.NoStackTraceException
-import io.legado.app.help.JttsContextBridge
+import io.legado.app.help.JttsChapterContextBridge
 import io.legado.app.help.TtsServerDbBridge
 import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
 import io.legado.app.help.book.BookHelp
@@ -858,21 +858,22 @@ class AudiobookCacheGenerator(
             footer = "导出格式：wav"
         )
         chapters.forEachIndexed { index, chapter ->
-            val contentHash = JttsContextBridge.contentHash(chapter.chapterText)
-            val sessionId = JttsContextBridge.sessionId(bookUrl, chapter.chapterIndex, contentHash)
-            if (!JttsContextBridge.isContextSent(
-                    bookId = bookUrl,
-                    chapterIndex = chapter.chapterIndex,
-                    chapterTitle = chapter.chapterTitle,
-                    contentHash = contentHash
-                )
-            ) {
+            val contextFile = runCatching {
+                withContext(IO) {
+                    JttsChapterContextBridge.prepareChapterContextUri(
+                        context = context,
+                        bookName = bookName,
+                        bookId = bookUrl,
+                        chapter = chapter
+                    )
+                }
+            }.getOrElse { error ->
                 failedCount += 1
                 markChapterProgress(chapterStates, readyCount, failedCount, running = index < chapters.lastIndex)
                 statusView.text = formatGenerationStatus(
-                    header = "第 ${chapter.chapterIndex + 1} 章尚未完成无 Web 上下文 marker 发送",
+                    header = "第 ${chapter.chapterIndex + 1} 章上下文文件生成失败",
                     chapters = chapterStates,
-                    footer = "请先开启 J.TTS 无 Web 整章上下文直通，并开始朗读本章，让 J.TTS 收到 jread_current_chapter.json。"
+                    footer = "原因：${error.localizedMessage ?: error.javaClass.simpleName}"
                 )
                 return@forEachIndexed
             }
@@ -881,15 +882,16 @@ class AudiobookCacheGenerator(
                     TtsServerDbBridge.exportAudiobookChapter(
                         context = context,
                         chapter = chapter,
-                        sessionId = sessionId,
-                        contentHash = contentHash,
+                        sessionId = contextFile.sessionId,
+                        contentHash = contextFile.contentHash,
+                        chapterContextUri = contextFile.chapterContextUri,
                         preferredFormat = "wav",
                         onProgress = { progress ->
                             statusView.post {
                                 statusView.text = formatGenerationStatus(
                                     header = "J.TTS 正在导出第 ${chapter.chapterIndex + 1} 章：$progress%",
                                     chapters = chapterStates,
-                                    footer = "sessionId=$sessionId\nhash=$contentHash"
+                                    footer = "sessionId=${contextFile.sessionId}\nhash=${contextFile.contentHash}"
                                 )
                             }
                         }
