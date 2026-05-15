@@ -3,6 +3,7 @@ package io.legado.app.ui.book.read.config
 //import io.legado.app.lib.theme.bottomBackground
 //import io.legado.app.lib.theme.getPrimaryTextColor
 import android.annotation.SuppressLint
+import android.content.res.ColorStateList
 import android.content.DialogInterface
 import android.graphics.Color
 import android.graphics.Typeface
@@ -22,6 +23,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.slider.Slider
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -56,6 +58,8 @@ import kotlinx.coroutines.withContext
 
 class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud),
     SpeakEngineDialog.CallBack {
+    private var showingSettingsPage = false
+
     private data class ScriptModelPreset(
         val provider: String,
         val label: String,
@@ -180,18 +184,20 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
     }
 
     private fun initData() = binding.run {
+        showListenPage(settings = false)
         upListenHero()
         upPlayState()
         upTimerText(BaseReadAloudService.timeMinute)
         cbTtsFollowSys.isChecked = requireContext().getPrefBoolean("ttsFollowSys", true)
-        cbAiBgm.isChecked = AiBgMusic.enabled
+        setAiBgmEnabled(AiBgMusic.enabled)
         cbAudioPreload.isChecked = AppConfig.audioPreloadEnabled && AppConfig.audioPreDownloadNum > 0
-        cbAudiobookAutoMerge.isChecked = AppConfig.audiobookAutoMergeAfterRead
+        setAudiobookAutoMergeEnabled(AppConfig.audiobookAutoMergeAfterRead)
         AppConfig.audiobookConvertMergedToMp3 = true
-        cbScriptBrainEnabled.isChecked = AppConfig.scriptBrainEnabled
-        upScriptBrainToolsVisible(AppConfig.scriptBrainEnabled)
+        setScriptBrainEnabled(AppConfig.scriptBrainEnabled)
         upSpeakEngineSummary()
         upTtsSpeechRateEnabled(!cbTtsFollowSys.isChecked)
+        upCurrentReadText(ReadBook.durChapterPos)
+        upPlayProgress(ReadBook.durChapterPos)
         upSeekTimer()
     }
 
@@ -209,12 +215,50 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         ).into(listenCover)
     }
 
+    private fun upCurrentReadText(progress: Int = ReadBook.durChapterPos) {
+        val chapterText = ReadBook.curTextChapter
+            ?.getNeedReadAloud(0, false, 0)
+            .orEmpty()
+        val text = if (chapterText.isBlank()) {
+            "暂无正在朗读的内容"
+        } else {
+            val start = progress.coerceIn(0, chapterText.length)
+            chapterText.substring(start)
+                .lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotBlank() }
+                ?: chapterText.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }
+                ?: "暂无正在朗读的内容"
+        }
+        binding.tvCurrentReadText.text = text
+    }
+
+    private fun upPlayProgress(progress: Int = ReadBook.durChapterPos) {
+        val chapterText = ReadBook.curTextChapter
+            ?.getNeedReadAloud(0, false, 0)
+            .orEmpty()
+        val total = chapterText.length.coerceAtLeast(1)
+        val value = (progress.coerceIn(0, total).toFloat() * 100f / total)
+            .coerceIn(binding.seekPlayProgress.valueFrom, binding.seekPlayProgress.valueTo)
+        binding.seekPlayProgress.value = value
+    }
+
     private fun initEvent() = binding.run {
+        tabListenPlay.setOnClickListener { showListenPage(settings = false) }
+        tabListenSettings.setOnClickListener { showListenPage(settings = true) }
+        btnPageSettings.setOnClickListener { showListenPage(settings = true) }
         ivMainMenu.setOnClickListener {
             callBack?.showMenuBar()
             dismissAllowingStateLoss()
         }
+        llMainMenu.setOnClickListener {
+            callBack?.showMenuBar()
+            dismissAllowingStateLoss()
+        }
         ivSetting.setOnClickListener {
+            ReadAloudConfigDialog().show(childFragmentManager, "readAloudConfigDialog")
+        }
+        llSetting.setOnClickListener {
             ReadAloudConfigDialog().show(childFragmentManager, "readAloudConfigDialog")
         }
         btnSpeakEngineSetting.setOnClickListener {
@@ -226,10 +270,8 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         btnAiBgmConfig.setOnClickListener {
             showAiBgMusicPlaybackConfig()
         }
-        cbScriptBrainEnabled.setOnCheckedChangeListener { _, isChecked ->
-            AppConfig.scriptBrainEnabled = isChecked
-            upScriptBrainToolsVisible(isChecked)
-        }
+        cbScriptBrainEnabled.setOnCheckedChangeListener { _, isChecked -> setScriptBrainEnabled(isChecked) }
+        cbScriptBrainEnabledQuick.setOnCheckedChangeListener { _, isChecked -> setScriptBrainEnabled(isChecked) }
         btnScriptCharacters.setOnClickListener { showScriptCharacters() }
         btnScriptPreview.setOnClickListener { showScriptPreview() }
         btnScriptRules.setOnClickListener { showScriptRules() }
@@ -240,20 +282,26 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         ivPlayPrev.setOnClickListener { ReadAloud.prevParagraph(requireContext()) }
         ivPlayNext.setOnClickListener { ReadAloud.nextParagraph(requireContext()) }
         ivCatalog.setOnClickListener { callBack?.openChapterList() }
+        llCatalog.setOnClickListener { callBack?.openChapterList() }
         val toBackstageAction = View.OnClickListener {
             callBack?.returnToBookshelf()
             dismissAllowingStateLoss()
         }
         ivToBackstageNav.setOnClickListener(toBackstageAction)
         llToBackstage.setOnClickListener(toBackstageAction)
+        rowToBackstageAction.setOnClickListener(toBackstageAction)
+        cbToBackstage.setOnClickListener(toBackstageAction)
+        btnStopReadAloud.setOnClickListener {
+            ReadAloud.stop(requireContext())
+            upPlayState()
+        }
         cbTtsFollowSys.setOnCheckedChangeListener { _, isChecked ->
             AppConfig.ttsFlowSys = isChecked
             upTtsSpeechRateEnabled(!isChecked)
             upTtsSpeechRate()
         }
-        cbAiBgm.setOnCheckedChangeListener { _, isChecked ->
-            AiBgMusic.enabled = isChecked
-        }
+        cbAiBgm.setOnCheckedChangeListener { _, isChecked -> setAiBgmEnabled(isChecked) }
+        cbAiBgmQuick.setOnCheckedChangeListener { _, isChecked -> setAiBgmEnabled(isChecked) }
 
         cbAudioPreload.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked && AppConfig.audioPreDownloadNum <= 0) {
@@ -270,8 +318,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
         }
 
         cbAudiobookAutoMerge.setOnCheckedChangeListener { _, isChecked ->
-            AppConfig.audiobookAutoMergeAfterRead = isChecked
-            AppConfig.audiobookConvertMergedToMp3 = true
+            setAudiobookAutoMergeEnabled(isChecked)
+        }
+        cbAudiobookAutoMergeQuick.setOnCheckedChangeListener { _, isChecked ->
+            setAudiobookAutoMergeEnabled(isChecked)
         }
 
         btnAudiobookStatus.setOnClickListener {
@@ -345,6 +395,44 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
             }
         })
 
+    }
+
+    private fun showListenPage(settings: Boolean) = binding.run {
+        showingSettingsPage = settings
+        listenPlayerPage.visible(!settings)
+        listenSettingsPage.visible(settings)
+        bottomSheetTitle.text = if (settings) "听书设置" else "听书"
+        btnPageSettings.visible(!settings)
+        btnSpeakEngineSetting.visible(settings)
+        setTabState(tabListenPlay, !settings)
+        setTabState(tabListenSettings, settings)
+    }
+
+    private fun setTabState(button: MaterialButton, selected: Boolean) {
+        val bgColor = if (selected) "#4F6F32" else "#F7F2EA"
+        val textColor = if (selected) "#FFFFFF" else "#4F6F32"
+        button.backgroundTintList = ColorStateList.valueOf(Color.parseColor(bgColor))
+        button.setTextColor(Color.parseColor(textColor))
+    }
+
+    private fun setAiBgmEnabled(enabled: Boolean) = binding.run {
+        AiBgMusic.enabled = enabled
+        if (cbAiBgm.isChecked != enabled) cbAiBgm.isChecked = enabled
+        if (cbAiBgmQuick.isChecked != enabled) cbAiBgmQuick.isChecked = enabled
+    }
+
+    private fun setScriptBrainEnabled(enabled: Boolean) = binding.run {
+        AppConfig.scriptBrainEnabled = enabled
+        if (cbScriptBrainEnabled.isChecked != enabled) cbScriptBrainEnabled.isChecked = enabled
+        if (cbScriptBrainEnabledQuick.isChecked != enabled) cbScriptBrainEnabledQuick.isChecked = enabled
+        upScriptBrainToolsVisible(enabled)
+    }
+
+    private fun setAudiobookAutoMergeEnabled(enabled: Boolean) = binding.run {
+        AppConfig.audiobookAutoMergeAfterRead = enabled
+        AppConfig.audiobookConvertMergedToMp3 = true
+        if (cbAudiobookAutoMerge.isChecked != enabled) cbAudiobookAutoMerge.isChecked = enabled
+        if (cbAudiobookAutoMergeQuick.isChecked != enabled) cbAudiobookAutoMergeQuick.isChecked = enabled
     }
 
     private fun upTtsSpeechRateEnabled(enabled: Boolean) {
@@ -1887,6 +1975,10 @@ class ReadAloudDialog : BaseBottomSheetDialogFragment(R.layout.dialog_read_aloud
 
     override fun observeLiveBus() {
         observeEvent<Int>(EventBus.ALOUD_STATE) { upPlayState() }
+        observeEvent<Int>(EventBus.TTS_PROGRESS) {
+            upCurrentReadText(it)
+            upPlayProgress(it)
+        }
         observeEvent<Int>(EventBus.READ_ALOUD_DS) {
             val value = it.coerceIn(binding.seekTimer.valueFrom.toInt(), binding.seekTimer.valueTo.toInt())
             binding.seekTimer.value = value.toFloat()
