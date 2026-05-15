@@ -450,7 +450,7 @@
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="96dp"
+                        android:layout_height="78dp"
                         android:layout_marginEnd="5dp"
                         android:layout_weight="1"
                         android:background="@drawable/bg_listen_tool_card"
@@ -458,50 +458,52 @@
                         android:orientation="vertical"
                         android:padding="10dp">
 
-                        <ImageView
-                            android:layout_width="22dp"
-                            android:layout_height="22dp"
-                            android:src="@drawable/ic_music_note"
-                            app:tint="#4F6F32" />
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="30dp"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:src="@drawable/ic_music_note"
+                                app:tint="#4F6F32" />
+
+                            <Space
+                                android:layout_width="0dp"
+                                android:layout_height="1dp"
+                                android:layout_weight="1" />
+
+                            <io.legado.app.lib.theme.view.ThemeSwitch
+                                android:id="@+id/cb_ai_bgm_quick"
+                                android:layout_width="48dp"
+                                android:layout_height="30dp"
+                                android:contentDescription="背景音乐"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:scaleX="0.66"
+                                android:scaleY="0.66"
+                                tools:ignore="TouchTargetSizeCheck" />
+
+                        </LinearLayout>
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
+                            android:layout_marginTop="8dp"
+                            android:ellipsize="end"
+                            android:maxLines="1"
                             android:text="背景音乐"
                             android:textColor="#333333"
                             android:textSize="12sp"
                             android:textStyle="bold" />
 
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="0dp"
-                            android:layout_marginTop="3dp"
-                            android:layout_weight="1"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="营造氛围"
-                            android:textColor="#7D8B73"
-                            android:textSize="11sp"
-                            android:visibility="gone" />
-
-                        <io.legado.app.lib.theme.view.ThemeSwitch
-                            android:id="@+id/cb_ai_bgm_quick"
-                            android:layout_width="48dp"
-                            android:layout_height="30dp"
-                            android:layout_gravity="end"
-                            android:contentDescription="背景音乐"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"
-                            android:scaleX="0.66"
-                            android:scaleY="0.66"
-                            tools:ignore="TouchTargetSizeCheck" />
-
                     </LinearLayout>
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="96dp"
+                        android:layout_height="78dp"
                         android:layout_marginHorizontal="5dp"
                         android:layout_weight="1"
                         android:background="@drawable/bg_listen_tool_card"
@@ -509,50 +511,52 @@
                         android:orientation="vertical"
                         android:padding="10dp">
 
-                        <ImageView
-                            android:layout_width="22dp"
-                            android:layout_height="22dp"
-                            android:src="@drawable/ic_leaf_simple"
-                            app:tint="#4F6F32" />
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="30dp"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:src="@drawable/ic_leaf_simple"
+                                app:tint="#4F6F32" />
+
+                            <Space
+                                android:layout_width="0dp"
+                                android:layout_height="1dp"
+                                android:layout_weight="1" />
+
+                            <io.legado.app.lib.theme.view.ThemeSwitch
+                                android:id="@+id/cb_script_brain_enabled_quick"
+                                android:layout_width="48dp"
+                                android:layout_height="30dp"
+                                android:contentDescription="智能分析"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:scaleX="0.66"
+                                android:scaleY="0.66"
+                                tools:ignore="TouchTargetSizeCheck" />
+
+                        </LinearLayout>
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
+                            android:layout_marginTop="8dp"
+                            android:ellipsize="end"
+                            android:maxLines="1"
                             android:text="智能分析"
                             android:textColor="#333333"
                             android:textSize="12sp"
                             android:textStyle="bold" />
 
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="0dp"
-                            android:layout_marginTop="3dp"
-                            android:layout_weight="1"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="识别角色"
-                            android:textColor="#7D8B73"
-                            android:textSize="11sp"
-                            android:visibility="gone" />
-
-                        <io.legado.app.lib.theme.view.ThemeSwitch
-                            android:id="@+id/cb_script_brain_enabled_quick"
-                            android:layout_width="48dp"
-                            android:layout_height="30dp"
-                            android:layout_gravity="end"
-                            android:contentDescription="智能分析"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"
-                            android:scaleX="0.66"
-                            android:scaleY="0.66"
-                            tools:ignore="TouchTargetSizeCheck" />
-
                     </LinearLayout>
 
                     <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="96dp"
+                        android:layout_height="78dp"
                         android:layout_marginStart="5dp"
                         android:layout_weight="1"
                         android:background="@drawable/bg_listen_tool_card"
@@ -560,44 +564,46 @@
                         android:orientation="vertical"
                         android:padding="10dp">
 
-                        <ImageView
-                            android:layout_width="22dp"
-                            android:layout_height="22dp"
-                            android:src="@drawable/ic_book_has"
-                            app:tint="#4F6F32" />
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="30dp"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:src="@drawable/ic_book_has"
+                                app:tint="#4F6F32" />
+
+                            <Space
+                                android:layout_width="0dp"
+                                android:layout_height="1dp"
+                                android:layout_weight="1" />
+
+                            <io.legado.app.lib.theme.view.ThemeSwitch
+                                android:id="@+id/cb_audiobook_auto_merge_quick"
+                                android:layout_width="48dp"
+                                android:layout_height="30dp"
+                                android:contentDescription="有声书模式"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:scaleX="0.66"
+                                android:scaleY="0.66"
+                                tools:ignore="TouchTargetSizeCheck" />
+
+                        </LinearLayout>
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
+                            android:layout_marginTop="8dp"
+                            android:ellipsize="end"
+                            android:maxLines="1"
                             android:text="有声书模式"
                             android:textColor="#333333"
                             android:textSize="12sp"
                             android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="0dp"
-                            android:layout_marginTop="3dp"
-                            android:layout_weight="1"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="优化效果"
-                            android:textColor="#7D8B73"
-                            android:textSize="11sp"
-                            android:visibility="gone" />
-
-                        <io.legado.app.lib.theme.view.ThemeSwitch
-                            android:id="@+id/cb_audiobook_auto_merge_quick"
-                            android:layout_width="48dp"
-                            android:layout_height="30dp"
-                            android:layout_gravity="end"
-                            android:contentDescription="有声书模式"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"
-                            android:scaleX="0.66"
-                            android:scaleY="0.66"
-                            tools:ignore="TouchTargetSizeCheck" />
 
                     </LinearLayout>
 
