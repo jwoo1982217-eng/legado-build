@@ -1679,10 +1679,11 @@ class ReadBookActivity : BaseReadBookActivity(),
             rippleColor = ColorStateList.valueOf(ripple)
         }
         binding.readAloudFloatPlayButton.apply {
-            iconTint = ColorStateList.valueOf(Color.WHITE)
-            setTextColor(Color.WHITE)
+            val playIconColor = Color.rgb(0xFF, 0xF8, 0xEA)
+            iconTint = ColorStateList.valueOf(playIconColor)
+            setTextColor(playIconColor)
             rippleColor = ColorStateList.valueOf(ripple)
-            this.background = createAiBgMusicFloatButtonBackground(background)
+            setBackgroundResource(R.drawable.bg_read_aloud_play_button)
         }
         binding.readAloudFloatStopButton.apply {
             val stopIconColor = Color.rgb(0xFF, 0xF8, 0xEA)

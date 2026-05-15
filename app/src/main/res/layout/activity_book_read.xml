@@ -114,7 +114,7 @@
 
     <LinearLayout
         android:id="@+id/read_aloud_float_panel"
-        android:layout_width="320dp"
+        android:layout_width="304dp"
         android:layout_height="68dp"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="18dp"
@@ -168,7 +168,7 @@
             style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
             android:layout_width="42dp"
             android:layout_height="42dp"
-            android:layout_marginStart="4dp"
+            android:layout_marginStart="0dp"
             android:background="@drawable/bg_read_aloud_stop_button"
             android:contentDescription="停止播放"
             android:elevation="0dp"
@@ -191,8 +191,8 @@
             style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
             android:layout_width="42dp"
             android:layout_height="42dp"
-            android:layout_marginStart="4dp"
-            android:background="@drawable/bg_ai_bgm_fab"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_read_aloud_play_button"
             android:contentDescription="暂停或继续朗读"
             android:elevation="0dp"
             android:insetLeft="0dp"
@@ -207,14 +207,14 @@
             app:icon="@drawable/ic_pause_filled"
             app:iconGravity="textStart"
             app:iconPadding="0dp"
-            app:iconSize="22dp" />
+            app:iconSize="24dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/read_aloud_float_close_button"
             style="@style/Widget.Material3Expressive.Button.IconButton.Tonal"
             android:layout_width="36dp"
             android:layout_height="36dp"
-            android:layout_marginStart="2dp"
+            android:layout_marginStart="6dp"
             android:background="@drawable/bg_ai_bgm_fab"
             android:contentDescription="收起播放器"
             android:elevation="0dp"
