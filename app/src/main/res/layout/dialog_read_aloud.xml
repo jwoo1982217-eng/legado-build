@@ -445,14 +445,14 @@
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="66dp"
+                    android:layout_height="72dp"
                     android:layout_marginTop="8dp"
                     android:background="@drawable/bg_listen_section_card"
                     android:baselineAligned="false"
                     android:gravity="center"
                     android:orientation="horizontal"
                     android:paddingHorizontal="10dp"
-                    android:paddingVertical="6dp">
+                    android:paddingVertical="4dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -464,8 +464,10 @@
 
                         <LinearLayout
                             android:layout_width="wrap_content"
-                            android:layout_height="28dp"
+                            android:layout_height="40dp"
                             android:gravity="center_vertical"
+                            android:clipChildren="false"
+                            android:clipToPadding="false"
                             android:orientation="horizontal">
 
                             <ImageView
@@ -476,14 +478,14 @@
 
                             <io.legado.app.lib.theme.view.ThemeSwitch
                                 android:id="@+id/cb_ai_bgm_quick"
-                                android:layout_width="44dp"
-                                android:layout_height="28dp"
-                                android:layout_marginStart="8dp"
+                                android:layout_width="64dp"
+                                android:layout_height="40dp"
+                                android:layout_marginStart="4dp"
                                 android:contentDescription="背景音乐"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"
-                                android:scaleX="0.62"
-                                android:scaleY="0.62"
+                                android:scaleX="0.64"
+                                android:scaleY="0.64"
                                 tools:ignore="TouchTargetSizeCheck" />
 
                         </LinearLayout>
@@ -491,7 +493,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="1dp"
                             android:ellipsize="end"
                             android:gravity="center"
                             android:includeFontPadding="false"
@@ -513,8 +515,10 @@
 
                         <LinearLayout
                             android:layout_width="wrap_content"
-                            android:layout_height="28dp"
+                            android:layout_height="40dp"
                             android:gravity="center_vertical"
+                            android:clipChildren="false"
+                            android:clipToPadding="false"
                             android:orientation="horizontal">
 
                             <ImageView
@@ -525,14 +529,14 @@
 
                             <io.legado.app.lib.theme.view.ThemeSwitch
                                 android:id="@+id/cb_script_brain_enabled_quick"
-                                android:layout_width="44dp"
-                                android:layout_height="28dp"
-                                android:layout_marginStart="8dp"
+                                android:layout_width="64dp"
+                                android:layout_height="40dp"
+                                android:layout_marginStart="4dp"
                                 android:contentDescription="智能分析"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"
-                                android:scaleX="0.62"
-                                android:scaleY="0.62"
+                                android:scaleX="0.64"
+                                android:scaleY="0.64"
                                 tools:ignore="TouchTargetSizeCheck" />
 
                         </LinearLayout>
@@ -540,7 +544,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="1dp"
                             android:ellipsize="end"
                             android:gravity="center"
                             android:includeFontPadding="false"
@@ -562,8 +566,10 @@
 
                         <LinearLayout
                             android:layout_width="wrap_content"
-                            android:layout_height="28dp"
+                            android:layout_height="40dp"
                             android:gravity="center_vertical"
+                            android:clipChildren="false"
+                            android:clipToPadding="false"
                             android:orientation="horizontal">
 
                             <ImageView
@@ -574,14 +580,14 @@
 
                             <io.legado.app.lib.theme.view.ThemeSwitch
                                 android:id="@+id/cb_audiobook_auto_merge_quick"
-                                android:layout_width="44dp"
-                                android:layout_height="28dp"
-                                android:layout_marginStart="8dp"
+                                android:layout_width="64dp"
+                                android:layout_height="40dp"
+                                android:layout_marginStart="4dp"
                                 android:contentDescription="有声书模式"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"
-                                android:scaleX="0.62"
-                                android:scaleY="0.62"
+                                android:scaleX="0.64"
+                                android:scaleY="0.64"
                                 tools:ignore="TouchTargetSizeCheck" />
 
                         </LinearLayout>
@@ -589,7 +595,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="1dp"
                             android:ellipsize="end"
                             android:gravity="center"
                             android:includeFontPadding="false"
