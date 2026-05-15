@@ -99,6 +99,20 @@ object JttsChapterContextBridge {
         )
     }
 
+    fun ensureChapterContextUri(
+        context: Context,
+        bookName: String,
+        bookId: String,
+        chapter: TtsServerDbBridge.AudiobookChapter
+    ): ChapterContextFile {
+        return prepareChapterContextUri(
+            context = context,
+            bookName = bookName,
+            bookId = bookId,
+            chapter = chapter
+        )
+    }
+
     private data class Segment(
         val index: Int,
         val text: String,
@@ -108,24 +122,63 @@ object JttsChapterContextBridge {
 
     private fun buildSegments(text: String): List<Segment> {
         val result = arrayListOf<Segment>()
-        var offset = 0
-        text.split('\n').forEach { raw ->
-            val startInRaw = raw.indexOfFirst { !it.isWhitespace() }
-            val endInRaw = raw.indexOfLast { !it.isWhitespace() }
-            if (startInRaw >= 0 && endInRaw >= startInRaw) {
-                val start = offset + startInRaw
-                val end = offset + endInRaw + 1
-                result += Segment(
-                    index = result.size,
-                    text = raw.substring(startInRaw, endInRaw + 1),
-                    startOffset = start,
-                    endOffset = end
-                )
+        var start = -1
+        var index = 0
+
+        fun appendSegment(rawStart: Int, rawEnd: Int) {
+            var segmentStart = rawStart
+            var segmentEnd = rawEnd
+            while (segmentStart < segmentEnd && text[segmentStart].isWhitespace()) segmentStart++
+            while (segmentEnd > segmentStart && text[segmentEnd - 1].isWhitespace()) segmentEnd--
+            if (segmentEnd <= segmentStart) return
+            val segmentText = text.substring(segmentStart, segmentEnd)
+            if (segmentText.none { it.isLetterOrDigit() }) return
+            result += Segment(
+                index = index++,
+                text = segmentText,
+                startOffset = segmentStart,
+                endOffset = segmentEnd
+            )
+        }
+
+        text.forEachIndexed { position, ch ->
+            if (start < 0) {
+                if (ch.isWhitespace()) return@forEachIndexed
+                start = position
             }
-            offset += raw.length + 1
+            val length = position - start + 1
+            val shouldSplit = when {
+                ch == '\n' || ch == '\r' -> true
+                ch in hardSentencePunctuation -> true
+                length >= SOFT_SEGMENT_MAX && ch in softSentencePunctuation -> true
+                length >= HARD_SEGMENT_MAX -> true
+                else -> false
+            }
+            if (shouldSplit) {
+                appendSegment(start, position + 1)
+                start = -1
+            }
+        }
+        if (start >= 0) {
+            appendSegment(start, text.length)
         }
         return result.ifEmpty {
-            listOf(Segment(0, text, 0, text.length))
+            val trimmedStart = text.indexOfFirst { !it.isWhitespace() }.coerceAtLeast(0)
+            val trimmedEnd = text.indexOfLast { !it.isWhitespace() }.let {
+                if (it >= 0) it + 1 else text.length
+            }
+            listOf(Segment(0, text.substring(trimmedStart, trimmedEnd), trimmedStart, trimmedEnd))
         }
     }
+
+    private val hardSentencePunctuation = setOf(
+        '。', '！', '？', '!', '?', '；', ';', '…'
+    )
+
+    private val softSentencePunctuation = hardSentencePunctuation + setOf(
+        '，', ',', '、', '：', ':'
+    )
+
+    private const val SOFT_SEGMENT_MAX = 220
+    private const val HARD_SEGMENT_MAX = 420
 }

@@ -1,14 +1,25 @@
 package io.legado.app.ui.book.read
 
 import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.ColorDrawable
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 import io.legado.app.R
 import io.legado.app.constant.EventBus
 import io.legado.app.data.appDb
@@ -78,50 +89,38 @@ class AudiobookCacheGenerator(
         val safeStartIndex = 0
         val preloadCount = AppConfig.audioPreDownloadNum.coerceAtLeast(0)
         val submitCount = chapterCount
+        val statusDialog = BottomSheetDialog(context)
         val statusContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24.dpToPx(), 16.dpToPx(), 24.dpToPx(), 8.dpToPx())
         }
-        val statusDialog = AlertDialog.Builder(context)
-            .setTitle("章节列表")
-            .setView(ScrollView(context).apply { addView(statusContainer) })
-            .setPositiveButton(R.string.ok, null)
-            .setNeutralButton("刷新", null)
-            .create()
+        val panel = createChapterAudioManagerPanel(
+            statusDialog = statusDialog,
+            contentContainer = statusContainer,
+            refresh = { refreshChapterStatus(statusContainer, book, safeStartIndex, submitCount, preloadCount, currentIndex) }
+        )
+        statusDialog.setContentView(panel)
 
         fun refresh() {
-            renderStatusLoading(statusContainer)
-            coroutineScope.launch {
-                runCatching {
-                    withContext(IO) {
-                        buildChapterStatusData(
-                            book = book,
-                            startIndex = safeStartIndex,
-                            submitCount = submitCount,
-                            preloadCount = preloadCount,
-                            currentIndex = currentIndex
-                        )
-                    }
-                }.onSuccess { data ->
-                    renderChapterStatus(
-                        container = statusContainer,
-                        book = book,
-                        data = data,
-                        refresh = { refresh() }
-                    )
-                }.onFailure { error ->
-                    renderStatusMessage(
-                        container = statusContainer,
-                        message = "章节列表查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
-                    )
-                }
-            }
+            refreshChapterStatus(statusContainer, book, safeStartIndex, submitCount, preloadCount, currentIndex)
         }
 
         statusDialog.setOnShowListener {
-            statusDialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                refresh()
+            val maxHeight = (context.resources.displayMetrics.heightPixels * 0.88f).toInt()
+            statusDialog.findViewById<FrameLayout>(com.google.android.material.R.id.design_bottom_sheet)
+                ?.let { bottomSheet ->
+                    bottomSheet.background = ColorDrawable(Color.TRANSPARENT)
+                    bottomSheet.layoutParams = bottomSheet.layoutParams.apply {
+                        height = maxHeight
+                    }
+                }
+            statusDialog.behavior.apply {
+                state = BottomSheetBehavior.STATE_EXPANDED
+                skipCollapsed = true
+                peekHeight = maxHeight
             }
+            panel.layoutParams = panel.layoutParams?.apply {
+                height = maxHeight
+            } ?: ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxHeight)
         }
         statusDialog.show()
         refresh()
@@ -193,6 +192,463 @@ class AudiobookCacheGenerator(
         job?.cancel()
     }
 
+    private fun refreshChapterStatus(
+        container: LinearLayout,
+        book: Book,
+        startIndex: Int,
+        submitCount: Int,
+        preloadCount: Int,
+        currentIndex: Int
+    ) {
+        renderStatusLoading(container)
+        coroutineScope.launch {
+            runCatching {
+                withContext(IO) {
+                    buildChapterStatusData(
+                        book = book,
+                        startIndex = startIndex,
+                        submitCount = submitCount,
+                        preloadCount = preloadCount,
+                        currentIndex = currentIndex
+                    )
+                }
+            }.onSuccess { data ->
+                renderChapterStatus(
+                    container = container,
+                    book = book,
+                    data = data,
+                    refresh = {
+                        refreshChapterStatus(
+                            container = container,
+                            book = book,
+                            startIndex = startIndex,
+                            submitCount = submitCount,
+                            preloadCount = preloadCount,
+                            currentIndex = currentIndex
+                        )
+                    }
+                )
+            }.onFailure { error ->
+                renderStatusMessage(
+                    container = container,
+                    message = "章节音频状态查询失败：${error.localizedMessage ?: error.javaClass.simpleName}"
+                )
+            }
+        }
+    }
+
+    private fun createChapterAudioManagerPanel(
+        statusDialog: BottomSheetDialog,
+        contentContainer: LinearLayout,
+        refresh: () -> Unit
+    ): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundedDrawable(surfaceColor, 30.dpToPx().toFloat())
+            setPadding(20.dpToPx(), 18.dpToPx(), 20.dpToPx(), 0)
+
+            addView(LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                orientation = LinearLayout.HORIZONTAL
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(context).apply {
+                        text = "章节音频管理"
+                        textSize = 24f
+                        setTextColor(onSurfaceColor)
+                        setTypeface(typeface, Typeface.BOLD)
+                    })
+                    addView(TextView(context).apply {
+                        text = "J.TTS 直连 · 阅读端整章音频"
+                        textSize = 14f
+                        setTextColor(onSurfaceVariantColor)
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = 4.dpToPx()
+                        }
+                    })
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(TextView(context).apply {
+                    text = "×"
+                    textSize = 30f
+                    gravity = Gravity.CENTER
+                    setTextColor(onSurfaceColor)
+                    background = roundedDrawable(cardColor, 22.dpToPx().toFloat(), outlineSoftColor)
+                    layoutParams = LinearLayout.LayoutParams(44.dpToPx(), 44.dpToPx())
+                    setOnClickListener { statusDialog.dismiss() }
+                })
+            })
+
+            addView(ScrollView(context).apply {
+                isFillViewport = false
+                addView(contentContainer.apply {
+                    setPadding(0, 16.dpToPx(), 0, 14.dpToPx())
+                })
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f
+                )
+            })
+
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 12.dpToPx(), 0, 16.dpToPx())
+                background = roundedDrawable(surfaceColor, 0f)
+                addView(actionButton("刷新", primary = false).apply {
+                    setOnClickListener { refresh() }
+                    layoutParams = LinearLayout.LayoutParams(0, 56.dpToPx(), 1f).apply {
+                        rightMargin = 8.dpToPx()
+                    }
+                })
+                addView(actionButton("完成", primary = true).apply {
+                    setOnClickListener { statusDialog.dismiss() }
+                    layoutParams = LinearLayout.LayoutParams(0, 56.dpToPx(), 1f).apply {
+                        leftMargin = 8.dpToPx()
+                    }
+                })
+            })
+        }
+    }
+
+    private fun summaryGrid(data: ChapterStatusData): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(summaryMetricCard("已完成", "${data.readyCount}/${data.totalCount}", "✓").apply {
+                    layoutParams = gridCellParams(right = 6.dpToPx(), bottom = 6.dpToPx())
+                })
+                addView(summaryMetricCard("全书章节", "${data.totalCount}章", "▣").apply {
+                    layoutParams = gridCellParams(left = 6.dpToPx(), bottom = 6.dpToPx())
+                })
+            })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(summaryMetricCard("生成窗口", "当前章+后${data.preloadCount}章", "◉").apply {
+                    layoutParams = gridCellParams(right = 6.dpToPx(), top = 6.dpToPx())
+                })
+                addView(summaryMetricCard("音频格式", "MP3 · 受保护", "◇").apply {
+                    layoutParams = gridCellParams(left = 6.dpToPx(), top = 6.dpToPx())
+                })
+            })
+        }
+    }
+
+    private fun summaryMetricCard(label: String, value: String, icon: String): View {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(10.dpToPx(), 12.dpToPx(), 10.dpToPx(), 12.dpToPx())
+            background = roundedDrawable(cardColor, 18.dpToPx().toFloat(), outlineSoftColor)
+            addView(TextView(context).apply {
+                text = icon
+                textSize = 22f
+                gravity = Gravity.CENTER
+                setTextColor(primaryColor)
+            })
+            addView(TextView(context).apply {
+                text = label
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(onSurfaceVariantColor)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 4.dpToPx()
+                }
+            })
+            addView(TextView(context).apply {
+                text = value
+                textSize = 17f
+                gravity = Gravity.CENTER
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(onSurfaceColor)
+            })
+        }
+    }
+
+    private fun progressCard(data: ChapterStatusData): View {
+        val percent = if (data.totalCount > 0) {
+            data.readyCount.toFloat() / data.totalCount.toFloat()
+        } else {
+            0f
+        }
+        return cardContainer(top = 12.dpToPx()).apply {
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = "生成进度"
+                    textSize = 17f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(onSurfaceColor)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(TextView(context).apply {
+                    text = "${data.readyCount}/${data.totalCount} 已完成"
+                    textSize = 14f
+                    setTextColor(onSurfaceVariantColor)
+                })
+            })
+            addView(progressBar(percent).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    10.dpToPx()
+                ).apply {
+                    topMargin = 12.dpToPx()
+                }
+            })
+        }
+    }
+
+    private fun strategyCard(data: ChapterStatusData): View {
+        val mode = if (data.useTtsServer) {
+            "J.TTS 直连 + 阅读端整章音频"
+        } else {
+            "开源阅读本地章节音频"
+        }
+        return cardContainer(top = 12.dpToPx()).apply {
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = "生成策略"
+                    textSize = 17f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(onSurfaceColor)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                addView(TextView(context).apply {
+                    text = "⌃"
+                    textSize = 20f
+                    setTextColor(primaryColor)
+                })
+            })
+            listOf(
+                "生成模式：$mode",
+                "生成窗口：后台预缓存 / 朗读默认提交当前章 + 后${data.preloadCount}章",
+                "查询对象：句子片段 + 完整章节音频"
+            ).forEach { line ->
+                addView(TextView(context).apply {
+                    text = "• $line"
+                    textSize = 14f
+                    setTextColor(onSurfaceVariantColor)
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = 8.dpToPx()
+                    }
+                })
+            }
+        }
+    }
+
+    private fun infoCard(message: String, title: String? = null): View {
+        return cardContainer(top = 10.dpToPx()).apply {
+            if (!title.isNullOrBlank()) {
+                addView(TextView(context).apply {
+                    text = title
+                    textSize = 16f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(onSurfaceColor)
+                })
+            }
+            addView(TextView(context).apply {
+                text = message
+                textSize = 14f
+                setTextColor(onSurfaceVariantColor)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    if (!title.isNullOrBlank()) topMargin = 8.dpToPx()
+                }
+            })
+        }
+    }
+
+    private fun progressBar(percent: Float): View {
+        val safePercent = percent.coerceIn(0f, 1f)
+        return FrameLayout(context).apply {
+            background = roundedDrawable(primaryContainerColor, 5.dpToPx().toFloat())
+            val fill = View(context).apply {
+                background = roundedDrawable(primaryColor, 5.dpToPx().toFloat())
+            }
+            addView(fill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
+            post {
+                fill.layoutParams = FrameLayout.LayoutParams(
+                    (width * safePercent).toInt().coerceAtLeast(if (safePercent > 0f) 8.dpToPx() else 0),
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        }
+    }
+
+    private fun cardContainer(top: Int = 0): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dpToPx(), 14.dpToPx(), 16.dpToPx(), 14.dpToPx())
+            background = roundedDrawable(cardColor, 20.dpToPx().toFloat(), outlineSoftColor)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = top
+            }
+        }
+    }
+
+    private fun gridCellParams(
+        left: Int = 0,
+        top: Int = 0,
+        right: Int = 0,
+        bottom: Int = 0
+    ): LinearLayout.LayoutParams {
+        return LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            leftMargin = left
+            topMargin = top
+            rightMargin = right
+            bottomMargin = bottom
+        }
+    }
+
+    private fun statusBadge(status: LocalAudiobookFileGenerator.ChapterStatus): TextView {
+        val color = status.status.statusColor()
+        return TextView(context).apply {
+            text = status.status.statusLabel()
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(color)
+            setPadding(10.dpToPx(), 4.dpToPx(), 10.dpToPx(), 4.dpToPx())
+            background = roundedDrawable(ColorUtils.setAlphaComponent(color, 30), 10.dpToPx().toFloat())
+        }
+    }
+
+    private fun deleteButton(): MaterialButton {
+        return MaterialButton(context).apply {
+            text = "删除"
+            textSize = 13f
+            minHeight = 0
+            minimumHeight = 0
+            minWidth = 0
+            minimumWidth = 0
+            insetTop = 0
+            insetBottom = 0
+            setPadding(10.dpToPx(), 0, 10.dpToPx(), 0)
+            setTextColor(errorColor)
+            iconTint = ColorStateList.valueOf(errorColor)
+            backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+            strokeColor = ColorStateList.valueOf(ColorUtils.setAlphaComponent(errorColor, 150))
+            strokeWidth = 1.dpToPx()
+            cornerRadius = 14.dpToPx()
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                34.dpToPx()
+            )
+        }
+    }
+
+    private fun actionButton(
+        text: String,
+        primary: Boolean = false,
+        danger: Boolean = false
+    ): MaterialButton {
+        val fill = when {
+            danger -> errorContainerColor
+            primary -> primaryColor
+            else -> primaryContainerColor
+        }
+        val textColor = when {
+            danger -> errorColor
+            primary -> onPrimaryColor
+            else -> primaryColor
+        }
+        return MaterialButton(context).apply {
+            this.text = text
+            textSize = 16f
+            setTypeface(typeface, Typeface.BOLD)
+            cornerRadius = 16.dpToPx()
+            backgroundTintList = ColorStateList.valueOf(fill)
+            setTextColor(textColor)
+            strokeWidth = if (danger) 1.dpToPx() else 0
+            strokeColor = ColorStateList.valueOf(if (danger) errorColor else Color.TRANSPARENT)
+        }
+    }
+
+    private fun roundedDrawable(
+        color: Int,
+        radius: Float,
+        strokeColor: Int? = null,
+        strokeWidth: Int = 1.dpToPx()
+    ): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(color)
+            cornerRadius = radius
+            if (strokeColor != null && strokeWidth > 0) {
+                setStroke(strokeWidth, strokeColor)
+            }
+        }
+    }
+
+    private fun themeColor(attr: Int, fallback: Int): Int {
+        val typedValue = TypedValue()
+        return if (context.theme.resolveAttribute(attr, typedValue, true)) {
+            if (typedValue.resourceId != 0) {
+                ContextCompat.getColor(context, typedValue.resourceId)
+            } else {
+                typedValue.data
+            }
+        } else {
+            fallback
+        }
+    }
+
+    private fun themeColor(attrName: String, fallback: Int): Int {
+        val attr = context.resources.getIdentifier(attrName, "attr", context.packageName)
+        return if (attr != 0) themeColor(attr, fallback) else fallback
+    }
+
+    private val primaryColor: Int
+        get() = themeColor(androidx.appcompat.R.attr.colorPrimary, Color.rgb(79, 111, 50))
+
+    private val onPrimaryColor: Int
+        get() = themeColor(com.google.android.material.R.attr.colorOnPrimary, Color.WHITE)
+
+    private val primaryContainerColor: Int
+        get() = themeColor(com.google.android.material.R.attr.colorPrimaryContainer, Color.rgb(232, 241, 225))
+
+    private val surfaceColor: Int
+        get() = themeColor(com.google.android.material.R.attr.colorSurface, Color.rgb(250, 248, 243))
+
+    private val cardColor: Int
+        get() = themeColor(com.google.android.material.R.attr.colorSurfaceContainerLowest, Color.WHITE)
+
+    private val onSurfaceColor: Int
+        get() = themeColor(com.google.android.material.R.attr.colorOnSurface, Color.rgb(51, 51, 51))
+
+    private val onSurfaceVariantColor: Int
+        get() = themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant, Color.rgb(125, 139, 115))
+
+    private val outlineSoftColor: Int
+        get() = ColorUtils.setAlphaComponent(
+            themeColor(com.google.android.material.R.attr.colorOutlineVariant, Color.rgb(225, 224, 211)),
+            180
+        )
+
+    private val errorColor: Int
+        get() = themeColor("colorError", Color.rgb(224, 85, 78))
+
+    private val errorContainerColor: Int
+        get() = themeColor(com.google.android.material.R.attr.colorErrorContainer, Color.rgb(255, 235, 232))
+
     private fun buildChapterStatusData(
         book: Book,
         startIndex: Int,
@@ -209,7 +665,12 @@ class AudiobookCacheGenerator(
             return ChapterStatusData(
                 header = "当前缓存窗口没有可查询章节。",
                 rows = emptyList(),
-                footer = ""
+                footer = "",
+                readyCount = 0,
+                failedCount = 0,
+                totalCount = 0,
+                preloadCount = preloadCount,
+                useTtsServer = LocalAudiobookFileGenerator.shouldUseTtsServerBridge()
             )
         }
 
@@ -269,7 +730,12 @@ class AudiobookCacheGenerator(
                     append("J.TTS 缓存工厂状态：\n")
                     append(buildTtsServerStatusSummary(chapters))
                 }
-            }
+            },
+            readyCount = readyCount,
+            failedCount = failedCount,
+            totalCount = chapters.size,
+            preloadCount = preloadCount,
+            useTtsServer = useTtsServer
         )
     }
 
@@ -279,10 +745,7 @@ class AudiobookCacheGenerator(
 
     private fun renderStatusMessage(container: LinearLayout, message: String) {
         container.removeAllViews()
-        container.addView(TextView(context).apply {
-            textSize = 16f
-            text = message
-        })
+        container.addView(infoCard(message))
     }
 
     private fun renderChapterStatus(
@@ -292,44 +755,52 @@ class AudiobookCacheGenerator(
         refresh: () -> Unit
     ) {
         container.removeAllViews()
-        container.addView(TextView(context).apply {
-            textSize = 16f
-            text = data.header
-        })
-        container.addView(Button(context).apply {
-            text = "清空本书整章音频"
+        container.addView(summaryGrid(data))
+        container.addView(progressCard(data))
+        container.addView(strategyCard(data))
+        container.addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply {
                 topMargin = 12.dpToPx()
-                bottomMargin = 4.dpToPx()
             }
-            setOnClickListener {
-                confirmClearBookMergedAudio(book, refresh)
-            }
+            addView(actionButton("刷新列表", primary = false).apply {
+                setOnClickListener { refresh() }
+                layoutParams = LinearLayout.LayoutParams(0, 52.dpToPx(), 1f).apply {
+                    rightMargin = 8.dpToPx()
+                }
+            })
+            addView(actionButton("清空整书音频", danger = true).apply {
+                setOnClickListener {
+                    confirmClearBookMergedAudio(book, refresh)
+                }
+                layoutParams = LinearLayout.LayoutParams(0, 52.dpToPx(), 1f).apply {
+                    leftMargin = 8.dpToPx()
+                }
+            })
         })
         if (data.rows.isNotEmpty()) {
             container.addView(TextView(context).apply {
-                textSize = 15f
-                text = "\n章节详情："
+                textSize = 17f
+                text = "章节详情（${data.readyCount}/${data.totalCount}）"
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(onSurfaceColor)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 18.dpToPx()
+                    bottomMargin = 10.dpToPx()
+                }
             })
         }
         data.rows.forEach { row ->
             container.addView(chapterStatusRowView(book, row, refresh))
-            container.addView(View(context).apply {
-                setBackgroundColor(0x1F000000)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    1
-                )
-            })
         }
         if (data.footer.isNotBlank()) {
-            container.addView(TextView(context).apply {
-                textSize = 15f
-                text = "\n${data.footer}"
-            })
+            container.addView(infoCard(data.footer.lines().take(4).joinToString("\n"), title = "J.TTS 状态"))
         }
     }
 
@@ -339,31 +810,101 @@ class AudiobookCacheGenerator(
         refresh: () -> Unit
     ): View {
         return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 10.dpToPx(), 0, 10.dpToPx())
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+            setPadding(14.dpToPx(), 14.dpToPx(), 14.dpToPx(), 14.dpToPx())
+            background = roundedDrawable(cardColor, 18.dpToPx().toFloat(), outlineSoftColor)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 12.dpToPx()
+            }
             addView(TextView(context).apply {
-                textSize = 15f
-                text = formatChapterStatusDetail(row.chapter, row.status)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
+                text = (row.chapter.chapterIndex + 1).toString().padStart(2, '0')
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(primaryColor)
+                background = roundedDrawable(primaryContainerColor, 10.dpToPx().toFloat())
+                layoutParams = LinearLayout.LayoutParams(44.dpToPx(), 44.dpToPx()).apply {
+                    rightMargin = 12.dpToPx()
+                }
             })
-            if (row.canDelete) {
-                addView(Button(context).apply {
-                    text = "删除"
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(TextView(context).apply {
+                        text = "${(row.chapter.chapterIndex + 1).toString().padStart(2, '0')} ${row.chapter.title.ifBlank { "未命名章节" }}"
+                        textSize = 16f
+                        maxLines = 2
+                        setTypeface(typeface, Typeface.BOLD)
+                        setTextColor(onSurfaceColor)
+                        layoutParams = LinearLayout.LayoutParams(
+                            0,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            1f
+                        ).apply {
+                            rightMargin = 8.dpToPx()
+                        }
+                    })
+                    addView(statusBadge(row.status))
+                })
+                addView(TextView(context).apply {
+                    text = row.status.formatChapterMeta()
+                    textSize = 13f
+                    setTextColor(onSurfaceVariantColor)
                     layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
                     ).apply {
-                        gravity = Gravity.END
-                        topMargin = 6.dpToPx()
-                    }
-                    setOnClickListener {
-                        confirmDeleteChapterCache(book, row.chapter, refresh)
+                        topMargin = 8.dpToPx()
                     }
                 })
-            }
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        topMargin = 8.dpToPx()
+                    }
+                    addView(TextView(context).apply {
+                        text = "更新时间：${if (row.status.updatedAt > 0) row.status.updatedAt.formatTime() else "--"}"
+                        textSize = 13f
+                        setTextColor(onSurfaceVariantColor)
+                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    if (row.canDelete) {
+                        addView(deleteButton().apply {
+                            setOnClickListener {
+                                confirmDeleteChapterCache(book, row.chapter, refresh)
+                            }
+                        })
+                    }
+                })
+                if (row.status.error.isNotBlank()) {
+                    addView(TextView(context).apply {
+                        text = row.status.error
+                        textSize = 12f
+                        setTextColor(errorColor)
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = 6.dpToPx()
+                        }
+                    })
+                }
+            })
         }
     }
 
@@ -372,7 +913,7 @@ class AudiobookCacheGenerator(
         chapter: ChapterUiState,
         refresh: () -> Unit
     ) {
-        AlertDialog.Builder(context)
+        val dialog = AlertDialog.Builder(context)
             .setTitle("删除本章有声书缓存")
             .setMessage(
                 "只删除第 ${chapter.chapterIndex + 1} 章「${chapter.title.ifBlank { "未命名章节" }}」的整章音频、manifest 和分句片段，其他章节不受影响。"
@@ -403,18 +944,19 @@ class AudiobookCacheGenerator(
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(errorColor)
     }
 
     private fun confirmClearBookMergedAudio(
         book: Book,
         refresh: () -> Unit
     ) {
-        AlertDialog.Builder(context)
-            .setTitle("清空本书整章音频")
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("确认清空整书音频？")
             .setMessage(
-                "只删除《${book.name}》已经合成好的完整章节音频，并把章节状态回退到片段已缓存/未生成；已经缓存的一句一句音频片段会尽量保留，方便重新合成。"
+                "此操作会删除《${book.name}》已生成的整章音频缓存，但不会删除书籍正文。已经缓存的一句一句音频片段会尽量保留，方便重新合成。"
             )
-            .setPositiveButton("清空") { _, _ ->
+            .setPositiveButton("确认清空") { _, _ ->
                 coroutineScope.launch {
                     val success = withContext(IO) {
                         LocalAudiobookFileGenerator.clearBookMergedChapterAudio(
@@ -424,7 +966,7 @@ class AudiobookCacheGenerator(
                     }
                     context.toastOnUi(
                         if (success) {
-                            "已清空本书整章音频"
+                            "已清空整书音频"
                         } else {
                             "部分整章音频可能未删除完整"
                         }
@@ -435,6 +977,7 @@ class AudiobookCacheGenerator(
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(errorColor)
     }
 
     private fun buildTtsServerStatusSummary(chapters: List<ChapterUiState>): String {
@@ -860,7 +1403,7 @@ class AudiobookCacheGenerator(
         chapters.forEachIndexed { index, chapter ->
             val contextFile = runCatching {
                 withContext(IO) {
-                    JttsChapterContextBridge.prepareChapterContextUri(
+                    JttsChapterContextBridge.ensureChapterContextUri(
                         context = context,
                         bookName = bookName,
                         bookId = bookUrl,
@@ -879,12 +1422,20 @@ class AudiobookCacheGenerator(
             }
             val export = runCatching {
                 withContext(IO) {
+                    TtsServerDbBridge.importChapterContextAsync(
+                        context = context,
+                        chapter = chapter,
+                        contextFile = contextFile
+                    )
                     TtsServerDbBridge.exportAudiobookChapter(
                         context = context,
+                        bookName = bookName,
                         chapter = chapter,
                         sessionId = contextFile.sessionId,
                         contentHash = contextFile.contentHash,
                         chapterContextUri = contextFile.chapterContextUri,
+                        chapterContentLength = contextFile.contentLength,
+                        segmentsCount = contextFile.segmentCount,
                         preferredFormat = "wav",
                         onProgress = { progress ->
                             statusView.post {
@@ -1073,6 +1624,30 @@ class AudiobookCacheGenerator(
         return lowercase() in setOf("ready", "completed", "segments_ready")
     }
 
+    private fun String.statusLabel(): String {
+        return when (lowercase()) {
+            "ready", "completed" -> "已生成"
+            "segments_ready" -> "片段已缓存"
+            "pending", "preparing", "caching_audio", "generating" -> "生成中"
+            "failed" -> "失败"
+            "not_generated", "missing" -> "未生成"
+            "cancelled", "canceled" -> "已取消"
+            else -> toChapterState()
+        }
+    }
+
+    private fun String.statusColor(): Int {
+        return when (lowercase()) {
+            "ready", "completed", "segments_ready" -> primaryColor
+            "pending", "preparing", "caching_audio", "generating" -> themeColor(
+                com.google.android.material.R.attr.colorTertiary,
+                Color.rgb(56, 102, 99)
+            )
+            "failed" -> errorColor
+            else -> onSurfaceVariantColor
+        }
+    }
+
     private fun String.toChapterState(): String {
         return when (lowercase()) {
             "ready", "completed" -> "已生成"
@@ -1085,6 +1660,21 @@ class AudiobookCacheGenerator(
             "not_generated" -> "未生成"
             else -> ifBlank { "未知" }
         }
+    }
+
+    private fun LocalAudiobookFileGenerator.ChapterStatus.formatChapterMeta(): String {
+        val segmentText = if (totalItems > 0) {
+            "$readyItems/$totalItems 片段"
+        } else {
+            "0/0 片段"
+        }
+        val sizeText = if (sizeBytes > 0) sizeBytes.formatFileSize() else "0MB"
+        val formatText = if (format.isNotBlank()) {
+            format.toChapterFormatName()
+        } else {
+            "MP3 · 受保护"
+        }
+        return "$segmentText · $sizeText · $formatText"
     }
 
     private fun LocalAudiobookFileGenerator.ChapterStatus.toChapterQueueState(): String {
@@ -1122,7 +1712,7 @@ class AudiobookCacheGenerator(
 
     private fun String.toChapterFormatName(): String {
         return when (lowercase()) {
-            "protected_mp3", "jreadmp3" -> "受保护 MP3"
+            "protected_mp3", "jreadmp3" -> "MP3 · 受保护"
             else -> uppercase()
         }
     }
@@ -1158,7 +1748,12 @@ class AudiobookCacheGenerator(
     private data class ChapterStatusData(
         val header: String,
         val rows: List<ChapterStatusRow>,
-        val footer: String
+        val footer: String,
+        val readyCount: Int,
+        val failedCount: Int,
+        val totalCount: Int,
+        val preloadCount: Int,
+        val useTtsServer: Boolean
     )
 
     private fun markChapterProgress(

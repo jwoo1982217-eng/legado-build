@@ -175,6 +175,10 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
         }
     }
 
+    override fun currentRealtimeTtsEngineForJttsBridge(): String? {
+        return currentEngine
+    }
+
     /**
      * 更新朗读速度
      */

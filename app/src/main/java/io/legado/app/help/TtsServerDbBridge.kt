@@ -1,12 +1,16 @@
 package io.legado.app.help
 
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
 import io.legado.app.constant.AppLog
@@ -15,6 +19,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.UUID
 import kotlin.coroutines.resume
 
@@ -28,6 +33,8 @@ object TtsServerDbBridge {
     private const val LEGACY_ACTION_START = "com.github.jing332.tts_server_android.jtts.action.LEGADO_BRIDGE_START"
     const val ACTION_EXPORT_CHAPTER_AUDIO = "com.jtts.action.EXPORT_CHAPTER_AUDIO"
     const val ACTION_EXPORT_CHAPTER_AUDIO_RESULT = "com.jtts.action.EXPORT_CHAPTER_AUDIO_RESULT"
+    const val ACTION_IMPORT_CHAPTER_CONTEXT = "com.jtts.action.IMPORT_CHAPTER_CONTEXT"
+    const val ACTION_IMPORT_CHAPTER_CONTEXT_RESULT = "com.jtts.action.IMPORT_CHAPTER_CONTEXT_RESULT"
     private const val FORWARDER_URL = "http://127.0.0.1:7120/api/tts"
     private const val DIRECT_HTTP_TTS_ID = -72120L
     private const val METHOD_PREPARE_AUDIOBOOK = "prepareAudiobookGeneration"
@@ -42,6 +49,10 @@ object TtsServerDbBridge {
         Uri.parse("content://$TTS_PACKAGE.legado.bridge"),
         Uri.parse("content://$LEGACY_TTS_PACKAGE.legado.bridge")
     )
+    @Volatile
+    private var lastImportedContextKey: String? = null
+    @Volatile
+    private var pendingImportContextKey: String? = null
 
     data class AudiobookChapter(
         val chapterIndex: Int,
@@ -227,10 +238,13 @@ object TtsServerDbBridge {
 
     suspend fun exportAudiobookChapter(
         context: Context,
+        bookName: String = "",
         chapter: AudiobookChapter,
         sessionId: String,
         contentHash: String,
         chapterContextUri: Uri,
+        chapterContentLength: Int = chapter.chapterText.length,
+        segmentsCount: Int = 0,
         preferredFormat: String = "wav",
         onProgress: (Int) -> Unit = {}
     ): Result<AudiobookChapterExport> {
@@ -251,6 +265,17 @@ object TtsServerDbBridge {
                         if (intent.getStringExtra("requestId") != requestId) return
                         val status = intent.getStringExtra("status").orEmpty()
                         val progress = intent.getIntExtra("progress", -1)
+                        appendBridgeDebug(
+                            buildString {
+                                appendLine()
+                                appendLine("EXPORT_CHAPTER_AUDIO_RESULT")
+                                appendLine("requestId=$requestId")
+                                appendLine("status=$status")
+                                appendLine("progress=$progress")
+                                appendLine("error=${intent.getStringExtra("error").orEmpty()}")
+                                appendLine("manifestJson=${intent.getStringExtra("manifestJson").orEmpty()}")
+                            }
+                        )
                         when (status.lowercase()) {
                             "running" -> {
                                 AppLog.putDebug(
@@ -295,6 +320,7 @@ object TtsServerDbBridge {
                 val intent = Intent(ACTION_EXPORT_CHAPTER_AUDIO).apply {
                     setPackage(TTS_PACKAGE)
                     data = chapterContextUri
+                    clipData = ClipData.newUri(app.contentResolver, "chapterContext", chapterContextUri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     putExtra("method", "exportAudiobookChapter")
                     putExtra("requestId", requestId)
@@ -308,6 +334,19 @@ object TtsServerDbBridge {
                     TTS_PACKAGE,
                     chapterContextUri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+                writeExportBridgeDebug(
+                    requestId = requestId,
+                    sessionId = sessionId,
+                    contentHash = contentHash,
+                    bookName = bookName,
+                    chapter = chapter,
+                    chapterContentLength = chapterContentLength,
+                    segmentsCount = segmentsCount,
+                    chapterContextUri = chapterContextUri,
+                    intent = intent,
+                    grantUriPermissionCalled = true,
+                    startForegroundServiceCalled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 )
                 val startResult = runCatching {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -326,6 +365,127 @@ object TtsServerDbBridge {
                     }
                 }
             }
+        }
+    }
+
+    fun importChapterContextAsync(
+        context: Context,
+        chapter: AudiobookChapter,
+        contextFile: JttsChapterContextBridge.ChapterContextFile,
+    ) {
+        val key = "${contextFile.sessionId}|${contextFile.contentHash}"
+        if (lastImportedContextKey == key) {
+            AppLog.putDebug(
+                "[JRead-JTTS] skip realtime context import, already done " +
+                        "sessionId=${contextFile.sessionId} hash=${contextFile.contentHash}"
+            )
+            return
+        }
+        if (pendingImportContextKey == key) {
+            AppLog.putDebug(
+                "[JRead-JTTS] skip realtime context import, pending " +
+                        "sessionId=${contextFile.sessionId} hash=${contextFile.contentHash}"
+            )
+            return
+        }
+        pendingImportContextKey = key
+
+        val app = context.applicationContext
+        val requestId = "jread_import_${chapter.chapterIndex}_${System.currentTimeMillis()}_${UUID.randomUUID()}"
+        val intent = Intent(ACTION_IMPORT_CHAPTER_CONTEXT).apply {
+            setPackage(TTS_PACKAGE)
+            data = contextFile.chapterContextUri
+            clipData = ClipData.newUri(app.contentResolver, "chapterContext", contextFile.chapterContextUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra("method", "importChapterContext")
+            putExtra("requestId", requestId)
+            putExtra("sessionId", contextFile.sessionId)
+            putExtra("contentHash", contextFile.contentHash)
+            putExtra("callerPackage", app.packageName)
+            putExtra("chapterContextUri", contextFile.chapterContextUri.toString())
+        }
+        app.grantUriPermission(
+            TTS_PACKAGE,
+            contextFile.chapterContextUri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+
+        var finished = false
+        val mainHandler = Handler(Looper.getMainLooper())
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, resultIntent: Intent?) {
+                if (resultIntent?.action != ACTION_IMPORT_CHAPTER_CONTEXT_RESULT) return
+                if (resultIntent.getStringExtra("requestId") != requestId) return
+                if (finished) return
+                finished = true
+                unregisterExportReceiver(app, this)
+                val status = resultIntent.getStringExtra("status").orEmpty()
+                val error = resultIntent.getStringExtra("error").orEmpty()
+                when (status.lowercase()) {
+                    "done" -> {
+                        lastImportedContextKey = key
+                        pendingImportContextKey = null
+                        AppLog.putDebug(
+                            "[JRead-JTTS] realtime context import done " +
+                                    "sessionId=${contextFile.sessionId} hash=${contextFile.contentHash}"
+                        )
+                    }
+
+                    "failed" -> {
+                        if (pendingImportContextKey == key) pendingImportContextKey = null
+                        AppLog.putDebug(
+                            "[JRead-JTTS] realtime context import failed " +
+                                    "sessionId=${contextFile.sessionId} error=$error"
+                        )
+                    }
+
+                    else -> {
+                        AppLog.putDebug(
+                            "[JRead-JTTS] realtime context import result status=$status " +
+                                    "sessionId=${contextFile.sessionId}"
+                        )
+                    }
+                }
+            }
+        }
+
+        runCatching {
+            ContextCompat.registerReceiver(
+                app,
+                receiver,
+                IntentFilter(ACTION_IMPORT_CHAPTER_CONTEXT_RESULT),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+            mainHandler.postDelayed({
+                if (!finished) {
+                    finished = true
+                    unregisterExportReceiver(app, receiver)
+                    if (pendingImportContextKey == key) pendingImportContextKey = null
+                    AppLog.putDebug(
+                        "[JRead-JTTS] realtime context import timeout " +
+                                "sessionId=${contextFile.sessionId}"
+                    )
+                }
+            }, 120_000L)
+            AppLog.putDebug(
+                "[JRead-JTTS] send realtime context import requestId=$requestId " +
+                        "sessionId=${contextFile.sessionId} hash=${contextFile.contentHash} " +
+                        "len=${contextFile.contentLength} segments=${contextFile.segmentCount} " +
+                        "chapterContextUri=${contextFile.chapterContextUri}"
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.startForegroundService(intent)
+            } else {
+                app.startService(intent)
+            }
+        }.onFailure {
+            finished = true
+            unregisterExportReceiver(app, receiver)
+            if (pendingImportContextKey == key) pendingImportContextKey = null
+            AppLog.putDebug(
+                "[JRead-JTTS] realtime context import start failed " +
+                        "sessionId=${contextFile.sessionId} error=${it.localizedMessage ?: it.javaClass.simpleName}"
+            )
         }
     }
 
@@ -349,6 +509,65 @@ object TtsServerDbBridge {
             return Result.failure(IllegalStateException(result.bridgeMessage()))
         }
         return Result.success(result.bridgeMessage().orEmpty().ifBlank { "TTS 临时文件已清理" })
+    }
+
+    private fun writeExportBridgeDebug(
+        requestId: String,
+        sessionId: String,
+        contentHash: String,
+        bookName: String,
+        chapter: AudiobookChapter,
+        chapterContentLength: Int,
+        segmentsCount: Int,
+        chapterContextUri: Uri,
+        intent: Intent,
+        grantUriPermissionCalled: Boolean,
+        startForegroundServiceCalled: Boolean
+    ) {
+        val hasReadFlag = intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0
+        val text = buildString {
+            appendLine("JRead × J.TTS Bridge Debug")
+            appendLine("updatedAt=${System.currentTimeMillis()}")
+            appendLine("requestId=$requestId")
+            appendLine("sessionId=$sessionId")
+            appendLine("contentHash=$contentHash")
+            appendLine("bookName=$bookName")
+            appendLine("chapterTitle=${chapter.chapterTitle}")
+            appendLine("chapterIndex=${chapter.chapterIndex}")
+            appendLine("chapterContentLength=$chapterContentLength")
+            appendLine("segmentsCount=$segmentsCount")
+            appendLine("chapterContextUri=$chapterContextUri")
+            appendLine("intentAction=${intent.action.orEmpty()}")
+            appendLine("intentPackage=${intent.`package`.orEmpty()}")
+            appendLine("hasReadFlag=$hasReadFlag")
+            appendLine("hasDataUri=${intent.data == chapterContextUri}")
+            appendLine("hasClipData=${intent.clipData != null}")
+            appendLine("grantUriPermissionCalled=$grantUriPermissionCalled")
+            appendLine("startForegroundServiceCalled=$startForegroundServiceCalled")
+        }
+        writeBridgeDebug(text, append = false)
+    }
+
+    private fun appendBridgeDebug(text: String) {
+        writeBridgeDebug(text, append = true)
+    }
+
+    private fun writeBridgeDebug(text: String, append: Boolean) {
+        runCatching {
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, "jread_jtts_bridge_debug.txt")
+            if (append) {
+                file.appendText(text, Charsets.UTF_8)
+            } else {
+                file.writeText(text, Charsets.UTF_8)
+            }
+        }.onFailure {
+            AppLog.putDebug(
+                "[JRead-JTTS] write bridge debug failed: " +
+                        (it.localizedMessage ?: it.javaClass.simpleName)
+            )
+        }
     }
 
     private fun unregisterExportReceiver(context: Context, receiver: BroadcastReceiver) {

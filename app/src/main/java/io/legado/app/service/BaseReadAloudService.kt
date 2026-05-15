@@ -36,6 +36,7 @@ import io.legado.app.constant.Status
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.HttpTTS
 import io.legado.app.help.MediaHelp
+import io.legado.app.help.JttsChapterContextBridge
 import io.legado.app.help.TtsServerDbBridge
 import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
 import io.legado.app.help.config.AppConfig
@@ -262,6 +263,7 @@ abstract class BaseReadAloudService : BaseService(),
             contentList = textChapter.getNeedReadAloud(0, readAloudByPage, 0)
                 .split("\n")
                 .filter { it.isNotEmpty() }
+            prewarmJttsChapterContext(textChapter)
             var pos = startPos
             val page = textChapter.getPage(pageIndex)!!
             if (pos > 0) {
@@ -374,6 +376,40 @@ abstract class BaseReadAloudService : BaseService(),
     protected open fun stopAudioPreloadByCommand() = Unit
 
     protected open fun playGeneratedChapterByCommand() = Unit
+
+    protected open fun currentRealtimeTtsEngineForJttsBridge(): String? = null
+
+    private fun prewarmJttsChapterContext(textChapter: TextChapter) {
+        if (!TtsServerDbBridge.isJttsEngine(currentRealtimeTtsEngineForJttsBridge())) return
+        val book = ReadBook.book ?: return
+        lifecycleScope.launch(IO) {
+            runCatching {
+                val chapterText = textChapter.getNeedReadAloud(0, false, 0).trim()
+                if (chapterText.isBlank()) return@runCatching
+                val chapter = TtsServerDbBridge.AudiobookChapter(
+                    chapterIndex = textChapter.chapter.index,
+                    chapterTitle = textChapter.chapter.title,
+                    chapterText = chapterText
+                )
+                val contextFile = JttsChapterContextBridge.ensureChapterContextUri(
+                    context = this@BaseReadAloudService,
+                    bookName = book.name,
+                    bookId = book.bookUrl,
+                    chapter = chapter
+                )
+                TtsServerDbBridge.importChapterContextAsync(
+                    context = this@BaseReadAloudService,
+                    chapter = chapter,
+                    contextFile = contextFile
+                )
+            }.onFailure {
+                AppLog.putDebug(
+                    "[JRead-JTTS] realtime context prewarm failed: " +
+                            (it.localizedMessage ?: it.javaClass.simpleName)
+                )
+            }
+        }
+    }
 
     protected fun markChapterFinishedByPlayback() {
         chapterFinishedByPlayback = true
