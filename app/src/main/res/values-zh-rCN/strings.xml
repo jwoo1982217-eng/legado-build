@@ -1452,6 +1452,10 @@
     <string name="read_aloud_preload_summary">%d</string>
     <string name="audio_cache_clean_time">音频缓存保留时间(分钟)</string>
     <string name="audio_cache_clean_time_summary">当前%d, 输入 0 代表退出即刻清理。</string>
+    <string name="jtts_no_web_context_bridge">J.TTS 无 Web 整章上下文直通</string>
+    <string name="jtts_no_web_context_bridge_summary">选择 J.TTS 时，朗读前通过系统 TTS 通道发送整章上下文和当前位置，不启动阅读 Web，不使用 HTTP 转发器。</string>
+    <string name="jtts_audiobook_export_bridge">J.TTS 整章有声书导出 Bridge</string>
+    <string name="jtts_audiobook_export_bridge_summary">选择 J.TTS 时，调用原生整章导出服务，并把 content:// 音频和 timeline 导入 J阅读有声书缓存。</string>
     <string name="show_swipe_animation">启用滑动时动画</string>
     <string name="click_image_way">点击图片行为</string>
     <string name="show_web_log">输出日志</string>

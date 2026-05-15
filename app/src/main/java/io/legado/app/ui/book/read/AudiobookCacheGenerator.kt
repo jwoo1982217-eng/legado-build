@@ -15,6 +15,7 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookSource
 import io.legado.app.exception.NoStackTraceException
+import io.legado.app.help.JttsContextBridge
 import io.legado.app.help.TtsServerDbBridge
 import io.legado.app.help.audiobook.LocalAudiobookFileGenerator
 import io.legado.app.help.book.BookHelp
@@ -559,39 +560,65 @@ class AudiobookCacheGenerator(
                     )
                 }.toMutableList()
                 if (LocalAudiobookFileGenerator.shouldUseTtsServerBridge()) {
-                    statusView.text = formatGenerationStatus(
-                        header = "已准备 ${chapters.size} 章正文，正在提交 TTS 缓存工厂...",
-                        chapters = chapterStates,
-                        footer = ""
-                    )
-                    val submit = withContext(IO) {
-                        TtsServerDbBridge.submitAudiobookGeneration(
-                            context = context,
+                    if (AppConfig.enableJttsAudiobookExportBridge) {
+                        taskId = null
+                        markChapterProgress(chapterStates, readyCount = 0, failedCount = 0, running = true)
+                        val imported = importTtsServerExports(
                             bookName = fullBook.name,
                             bookUrl = fullBook.bookUrl,
-                            author = fullBook.author,
-                            origin = fullBook.origin,
-                            startChapterIndex = startIndex,
-                            preloadCount = preloadCount,
-                            chapters = chapters
-                        ).getOrThrow()
-                    }
-                    taskId = submit.taskId
-                    if (submit.taskId.isBlank()) {
-                        statusView.text = formatGenerationStatus(
-                            header = "TTS 已接收任务，但没有返回任务 ID。",
-                            chapters = chapterStates,
-                            footer = noTaskIdMessage(submit)
+                            chapters = chapters,
+                            statusView = statusView,
+                            chapterStates = chapterStates
                         )
-                        return@launch
+                        if (imported) {
+                            context.toastOnUi("有声书缓存已导入 J阅读")
+                            postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "ready")
+                            postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
+                        } else {
+                            postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "idle")
+                        }
+                    } else {
+                        statusView.text = formatGenerationStatus(
+                            header = "已准备 ${chapters.size} 章正文，正在提交 TTS 缓存工厂...",
+                            chapters = chapterStates,
+                            footer = ""
+                        )
+                        val submit = withContext(IO) {
+                            TtsServerDbBridge.submitAudiobookGeneration(
+                                context = context,
+                                bookName = fullBook.name,
+                                bookUrl = fullBook.bookUrl,
+                                author = fullBook.author,
+                                origin = fullBook.origin,
+                                startChapterIndex = startIndex,
+                                preloadCount = preloadCount,
+                                chapters = chapters
+                            ).getOrThrow()
+                        }
+                        taskId = submit.taskId
+                        if (submit.taskId.isBlank()) {
+                            statusView.text = formatGenerationStatus(
+                                header = "TTS 已接收任务，但没有返回任务 ID。",
+                                chapters = chapterStates,
+                                footer = noTaskIdMessage(submit)
+                            )
+                            return@launch
+                        }
+                        markChapterProgress(chapterStates, readyCount = 0, failedCount = 0, running = true)
+                        statusView.text = formatGenerationStatus(
+                            header = "TTS 已接收 ${submit.acceptedChapters} 章，正在等待缓存进度...",
+                            chapters = chapterStates,
+                            footer = "任务 ID：${submit.taskId}"
+                        )
+                        pollStatus(
+                            taskId = submit.taskId,
+                            bookName = fullBook.name,
+                            bookUrl = fullBook.bookUrl,
+                            chapters = chapters,
+                            statusView = statusView,
+                            chapterStates = chapterStates
+                        )
                     }
-                    markChapterProgress(chapterStates, readyCount = 0, failedCount = 0, running = true)
-                    statusView.text = formatGenerationStatus(
-                        header = "TTS 已接收 ${submit.acceptedChapters} 章，正在等待缓存进度...",
-                        chapters = chapterStates,
-                        footer = "任务 ID：${submit.taskId}"
-                    )
-                    pollStatus(submit.taskId, statusView, chapterStates)
                 } else {
                     taskId = null
                     markChapterProgress(chapterStates, readyCount = 0, failedCount = 0, running = true)
@@ -759,6 +786,9 @@ class AudiobookCacheGenerator(
 
     private suspend fun pollStatus(
         taskId: String,
+        bookName: String,
+        bookUrl: String,
+        chapters: List<TtsServerDbBridge.AudiobookChapter>,
         statusView: TextView,
         chapterStates: MutableList<ChapterUiState>
     ) {
@@ -777,9 +807,20 @@ class AudiobookCacheGenerator(
                 statusView.text = status.formatForUser(chapterStates)
                 if (status.isFinished) {
                     if (status.status.equals("ready", true) || status.status.equals("completed", true)) {
-                        context.toastOnUi("有声书缓存已生成")
-                        postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "ready")
-                        postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
+                        val imported = importTtsServerExports(
+                            bookName = bookName,
+                            bookUrl = bookUrl,
+                            chapters = chapters,
+                            statusView = statusView,
+                            chapterStates = chapterStates
+                        )
+                        if (imported) {
+                            context.toastOnUi("有声书缓存已导入 J阅读")
+                            postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "ready")
+                            postEvent(EventBus.AUDIOBOOK_CACHE_CHANGED, true)
+                        } else {
+                            postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "idle")
+                        }
                     } else {
                         postEvent(EventBus.AUDIOBOOK_CACHE_STATUS, "idle")
                     }
@@ -800,6 +841,126 @@ class AudiobookCacheGenerator(
                 footer = "任务 ID：$taskId\n原因：${e.localizedMessage ?: e.javaClass.simpleName}"
             )
         }
+    }
+
+    private suspend fun importTtsServerExports(
+        bookName: String,
+        bookUrl: String,
+        chapters: List<TtsServerDbBridge.AudiobookChapter>,
+        statusView: TextView,
+        chapterStates: MutableList<ChapterUiState>
+    ): Boolean {
+        var readyCount = 0
+        var failedCount = 0
+        statusView.text = formatGenerationStatus(
+            header = "正在调用 J.TTS 原生整章导出服务...",
+            chapters = chapterStates,
+            footer = "导出格式：wav"
+        )
+        chapters.forEachIndexed { index, chapter ->
+            val contentHash = JttsContextBridge.contentHash(chapter.chapterText)
+            val sessionId = JttsContextBridge.sessionId(bookUrl, chapter.chapterIndex, contentHash)
+            if (!JttsContextBridge.isContextSent(
+                    bookId = bookUrl,
+                    chapterIndex = chapter.chapterIndex,
+                    chapterTitle = chapter.chapterTitle,
+                    contentHash = contentHash
+                )
+            ) {
+                failedCount += 1
+                markChapterProgress(chapterStates, readyCount, failedCount, running = index < chapters.lastIndex)
+                statusView.text = formatGenerationStatus(
+                    header = "第 ${chapter.chapterIndex + 1} 章尚未完成无 Web 上下文 marker 发送",
+                    chapters = chapterStates,
+                    footer = "请先开启 J.TTS 无 Web 整章上下文直通，并开始朗读本章，让 J.TTS 收到 jread_current_chapter.json。"
+                )
+                return@forEachIndexed
+            }
+            val export = runCatching {
+                withContext(IO) {
+                    TtsServerDbBridge.exportAudiobookChapter(
+                        context = context,
+                        chapter = chapter,
+                        sessionId = sessionId,
+                        contentHash = contentHash,
+                        preferredFormat = "wav",
+                        onProgress = { progress ->
+                            statusView.post {
+                                statusView.text = formatGenerationStatus(
+                                    header = "J.TTS 正在导出第 ${chapter.chapterIndex + 1} 章：$progress%",
+                                    chapters = chapterStates,
+                                    footer = "sessionId=$sessionId\nhash=$contentHash"
+                                )
+                            }
+                        }
+                    ).getOrThrow()
+                }
+            }.getOrElse { error ->
+                failedCount += 1
+                markChapterProgress(chapterStates, readyCount, failedCount, running = index < chapters.lastIndex)
+                statusView.text = formatGenerationStatus(
+                    header = "第 ${chapter.chapterIndex + 1} 章导出失败",
+                    chapters = chapterStates,
+                    footer = "原因：${error.localizedMessage ?: error.javaClass.simpleName}"
+                )
+                return@forEachIndexed
+            }
+
+            val imported = runCatching {
+                withContext(IO) {
+                    LocalAudiobookFileGenerator.importTtsServerExport(
+                        context = context,
+                        bookName = bookName,
+                        bookUrl = bookUrl,
+                        chapter = chapter,
+                        export = export
+                    )
+                }
+            }
+            withContext(IO) {
+                TtsServerDbBridge.cleanupAudiobookChapterExport(context, export)
+                    .onFailure { /* 清理失败不影响 J阅读已导入的加密缓存 */ }
+            }
+            imported
+                .onSuccess {
+                    readyCount += 1
+                    markChapterProgress(
+                        chapters = chapterStates,
+                        readyCount = readyCount,
+                        failedCount = failedCount,
+                        running = index < chapters.lastIndex
+                    )
+                    statusView.text = formatGenerationStatus(
+                        header = "正在导入 J.TTS 整章音频：$readyCount/${chapters.size}",
+                        chapters = chapterStates,
+                        footer = "最近导入：第 ${chapter.chapterIndex + 1} 章 ${chapter.chapterTitle.ifBlank { "未命名章节" }}"
+                    )
+                }
+                .onFailure { error ->
+                    failedCount += 1
+                    markChapterProgress(
+                        chapters = chapterStates,
+                        readyCount = readyCount,
+                        failedCount = failedCount,
+                        running = index < chapters.lastIndex
+                    )
+                    statusView.text = formatGenerationStatus(
+                        header = "第 ${chapter.chapterIndex + 1} 章导入失败",
+                        chapters = chapterStates,
+                        footer = "原因：${error.localizedMessage ?: error.javaClass.simpleName}"
+                    )
+                }
+        }
+        statusView.text = formatGenerationStatus(
+            header = if (failedCount == 0) {
+                "J.TTS 整章音频已全部导入 J阅读有声书缓存"
+            } else {
+                "J.TTS 整章音频导入完成，但有 $failedCount 章失败"
+            },
+            chapters = chapterStates,
+            footer = "成功：$readyCount/${chapters.size}"
+        )
+        return chapters.isNotEmpty() && readyCount == chapters.size && failedCount == 0
     }
 
     private fun noTaskIdMessage(submit: TtsServerDbBridge.AudiobookSubmitResult): String {

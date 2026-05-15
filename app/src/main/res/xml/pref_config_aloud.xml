@@ -61,6 +61,20 @@
             android:key="appTtsEngine"
             app:iconSpaceReserved="false" />
 
+        <io.legado.app.lib.prefs.SwitchPreference
+            android:defaultValue="false"
+            android:key="enableJttsNoWebContextBridge"
+            android:summary="@string/jtts_no_web_context_bridge_summary"
+            android:title="@string/jtts_no_web_context_bridge"
+            app:iconSpaceReserved="false" />
+
+        <io.legado.app.lib.prefs.SwitchPreference
+            android:defaultValue="false"
+            android:key="enableJttsAudiobookExportBridge"
+            android:summary="@string/jtts_audiobook_export_bridge_summary"
+            android:title="@string/jtts_audiobook_export_bridge"
+            app:iconSpaceReserved="false" />
+
         <io.legado.app.lib.prefs.Preference
             android:title="@string/sys_tts_config"
             android:summary="@string/sys_tts_config_summary"

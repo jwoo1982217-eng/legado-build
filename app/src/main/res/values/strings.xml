@@ -1459,6 +1459,10 @@
     <string name="read_aloud_preload_summary">%d</string>
     <string name="audio_cache_clean_time">音频缓存保留时间(分钟)</string>
     <string name="audio_cache_clean_time_summary">当前%d, 输入 0 代表退出即刻清理。</string>
+    <string name="jtts_no_web_context_bridge">J.TTS no-web chapter context</string>
+    <string name="jtts_no_web_context_bridge_summary">When J.TTS is selected, send chapter context and pointer markers through Android TTS before speaking. No Web service or HTTP forwarder is used.</string>
+    <string name="jtts_audiobook_export_bridge">J.TTS audiobook export bridge</string>
+    <string name="jtts_audiobook_export_bridge_summary">When J.TTS is selected, request native whole-chapter audio export and import content Uri results into J.Read cache.</string>
     <string name="show_swipe_animation">Show Swipe Animation</string>
     <string name="click_image_way">Image Clicking</string>
     <string name="show_web_log">Output Logs</string>

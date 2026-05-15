@@ -167,6 +167,11 @@ class ReadAloudConfigDialog : BasePrefDialogFragment() {
                     }
                 }
 
+                PreferKey.enableJttsNoWebContextBridge,
+                PreferKey.enableJttsAudiobookExportBridge -> {
+                    ReadAloud.upReadAloudClass()
+                }
+
                 PreferKey.ignoreAudioFocus -> {
                     findPreference<SwitchPreference>(PreferKey.pauseReadAloudWhilePhoneCalls)?.let {
                         it.isEnabled = AppConfig.ignoreAudioFocus

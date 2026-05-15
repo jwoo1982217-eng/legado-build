@@ -58,7 +58,7 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
     var optimizeRender = CanvasRecorderFactory.isSupport
             && appCtx.getPrefBoolean(PreferKey.optimizeRender, false)
     var recordLog = appCtx.getPrefBoolean(PreferKey.recordLog)
-    var webServiceAutoStart = appCtx.getPrefBoolean(PreferKey.webServiceAutoStart, true)
+    var webServiceAutoStart = appCtx.getPrefBoolean(PreferKey.webServiceAutoStart, false)
 
     // -- lyc 版本特性 --
     var adaptSpecialStyle = appCtx.getPrefBoolean(PreferKey.adaptSpecialStyle, true)
@@ -1008,6 +1008,14 @@ object AppConfig : SharedPreferences.OnSharedPreferenceChangeListener {
     var audiobookConvertMergedToMp3: Boolean
         get() = appCtx.getPrefBoolean(PreferKey.audiobookConvertMergedToMp3, true)
         set(value) = appCtx.putPrefBoolean(PreferKey.audiobookConvertMergedToMp3, value)
+
+    var enableJttsNoWebContextBridge: Boolean
+        get() = appCtx.getPrefBoolean(PreferKey.enableJttsNoWebContextBridge, false)
+        set(value) = appCtx.putPrefBoolean(PreferKey.enableJttsNoWebContextBridge, value)
+
+    var enableJttsAudiobookExportBridge: Boolean
+        get() = appCtx.getPrefBoolean(PreferKey.enableJttsAudiobookExportBridge, false)
+        set(value) = appCtx.putPrefBoolean(PreferKey.enableJttsAudiobookExportBridge, value)
 
     var scriptBrainEnabled: Boolean
         get() = appCtx.getPrefBoolean(PreferKey.scriptBrainEnabled, false)

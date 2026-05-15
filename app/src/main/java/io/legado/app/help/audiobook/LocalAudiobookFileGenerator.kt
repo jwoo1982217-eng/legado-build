@@ -3,10 +3,12 @@ package io.legado.app.help.audiobook
 import android.content.Context
 import android.media.AudioManager
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import io.legado.app.constant.AppLog
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
 import io.legado.app.constant.AppPattern
@@ -139,7 +141,7 @@ object LocalAudiobookFileGenerator {
             }
         }
 
-        val audioFile = listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio")
+        val audioFile = chapterAudioExtensions()
             .asSequence()
             .flatMap { extension ->
                 sequenceOf(
@@ -202,7 +204,7 @@ object LocalAudiobookFileGenerator {
             if (
                 format != ProtectedAudiobookFile.FORMAT &&
                 !ProtectedAudiobookFile.isProtectedFile(file) &&
-                !file.extension.equals("mp3", ignoreCase = true)
+                file.extension.lowercase() !in playableChapterAudioExtensions()
             ) {
                 return null
             }
@@ -223,7 +225,7 @@ object LocalAudiobookFileGenerator {
             ?.let { File(it) }
             ?.takeIf { it.exists() && it.length() > 0 }
             ?.let { return it }
-        return listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio")
+        return chapterAudioExtensions()
             .asSequence()
             .flatMap { extension ->
                 sequenceOf(
@@ -302,7 +304,7 @@ object LocalAudiobookFileGenerator {
         if (dir.exists()) {
             success = FileUtils.delete(dir, deleteRootDir = true) && success
         }
-        listOf("json", ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio").forEach { extension ->
+        (listOf("json") + chapterAudioExtensions()).forEach { extension ->
             val file = File(bookRoot, "$baseName.$extension")
             if (file.exists()) {
                 success = FileUtils.delete(file, deleteRootDir = true) && success
@@ -313,7 +315,7 @@ object LocalAudiobookFileGenerator {
 
     private fun clearMergedChapterFiles(dir: File): Boolean {
         var success = true
-        listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio").forEach { extension ->
+        chapterAudioExtensions().forEach { extension ->
             val file = File(dir, "chapter.$extension")
             if (file.exists()) {
                 success = FileUtils.delete(file, deleteRootDir = true) && success
@@ -323,12 +325,7 @@ object LocalAudiobookFileGenerator {
     }
 
     private fun File.isChapterAudioFile(): Boolean {
-        return extension.lowercase() in setOf(
-            ProtectedAudiobookFile.EXTENSION,
-            "mp3",
-            "wav",
-            "audio"
-        )
+        return extension.lowercase() in chapterAudioExtensions()
     }
 
     private fun downgradeMergedChapterManifest(file: File): Boolean {
@@ -584,6 +581,83 @@ object LocalAudiobookFileGenerator {
         return inspectChapterStatus(appContext, bookName, chapter)
     }
 
+    suspend fun importTtsServerExport(
+        context: Context,
+        bookName: String,
+        bookUrl: String,
+        chapter: TtsServerDbBridge.AudiobookChapter,
+        export: TtsServerDbBridge.AudiobookChapterExport
+    ): ChapterStatus = withContext(IO) {
+        val appContext = context.applicationContext
+        val outDir = chapterDir(appContext, bookName, chapter)
+        val baseName = chapterFileBaseName(chapter)
+        val tempRoot = File(outDir, ".tmp").also { it.mkdirs() }
+        val tempSource = File(
+            tempRoot,
+            "${baseName.safeFileName()}_jtts_export_${System.currentTimeMillis()}.${export.audioExtension()}"
+        )
+        try {
+            openExportInputStream(appContext, export.audioUri).use { input ->
+                tempSource.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            if (!tempSource.exists() || tempSource.length() <= 0L) {
+                throw NoStackTraceException("J.TTS 导出的整章音频为空")
+            }
+
+            val audioExtension = export.audioExtension()
+            val audioFile = chapterOutputFile(outDir, audioExtension)
+            tempSource.copyTo(audioFile, overwrite = true)
+            AppLog.putDebug(
+                "[JRead-JTTS] copy audioUri success size=${audioFile.length()} path=${audioFile.absolutePath}"
+            )
+
+            val timelineJson = readExportText(appContext, export.timelineUri)
+                .ifBlank { export.timelineJson }
+            if (timelineJson.isNotBlank()) {
+                File(outDir, "timeline.json").writeText(timelineJson, Charsets.UTF_8)
+                AppLog.putDebug(
+                    "[JRead-JTTS] copy timelineUri success size=${timelineJson.toByteArray().size}"
+                )
+            }
+            val manifestJson = readExportText(appContext, export.manifestUri)
+                .ifBlank { export.manifestJson }
+            if (manifestJson.isNotBlank()) {
+                File(outDir, "jtts_manifest.json").writeText(manifestJson, Charsets.UTF_8)
+                AppLog.putDebug(
+                    "[JRead-JTTS] copy manifestUri success size=${manifestJson.toByteArray().size}"
+                )
+            }
+
+            val durationMs = export.durationMs.takeIf { it > 0L }
+                ?: audioDurationMs(audioFile, audioFile.readBytes()).coerceAtLeast(1L)
+            if (!audioFile.exists() || audioFile.length() <= 0L) {
+                throw NoStackTraceException("J阅读写入整章音频失败")
+            }
+
+            writeManifest(
+                context = appContext,
+                bookName = bookName,
+                bookUrl = bookUrl,
+                chapter = chapter,
+                engineName = "J.TTS 原生导出",
+                status = "ready",
+                file = audioFile,
+                error = "",
+                items = parseExportTimeline(
+                    raw = timelineJson,
+                    chapter = chapter,
+                    durationMs = durationMs
+                )
+            )
+            AppLog.putDebug("[JRead-JTTS] save audiobook cache success path=${audioFile.absolutePath}")
+            inspectChapterStatus(appContext, bookName, chapter)
+        } finally {
+            if (tempSource.exists()) tempSource.delete()
+        }
+    }
+
     private fun resolveEnginePlan(): EnginePlan {
         val ttsEngine = ReadAloud.ttsEngine
         if (!ttsEngine.isNullOrBlank() && StringUtils.isNumeric(ttsEngine)) {
@@ -596,12 +670,126 @@ object LocalAudiobookFileGenerator {
             ?.value
 
         return when {
-            ttsEngine.isNullOrBlank() || sysEngine.isNullOrBlank() || sysEngine == TtsServerDbBridge.TTS_PACKAGE -> {
+            ttsEngine.isNullOrBlank() || sysEngine.isNullOrBlank() || TtsServerDbBridge.isJttsEngine(sysEngine) -> {
                 EnginePlan.TtsServer
             }
 
             else -> EnginePlan.System(sysEngine)
         }
+    }
+
+    private fun openExportInputStream(context: Context, rawUri: String) =
+        Uri.parse(rawUri).let { uri ->
+            if (uri.scheme != "content") {
+                throw NoStackTraceException("J.TTS 导出必须返回 content:// Uri：$rawUri")
+            }
+            context.contentResolver.openInputStream(uri)
+                ?: throw NoStackTraceException("无法打开 J.TTS 导出 Uri：$rawUri")
+        }
+
+    private fun readExportText(context: Context, rawUri: String): String {
+        if (rawUri.isBlank()) return ""
+        return runCatching {
+            openExportInputStream(context, rawUri).use {
+                it.readBytes().toString(Charsets.UTF_8)
+            }
+        }.getOrDefault("")
+    }
+
+    private fun TtsServerDbBridge.AudiobookChapterExport.audioExtension(): String {
+        val fromMime = when (audioMimeType.lowercase()) {
+            "audio/wav", "audio/x-wav" -> "wav"
+            "audio/mpeg", "audio/mp3" -> "mp3"
+            "audio/mp4", "audio/aac", "audio/m4a" -> "m4a"
+            else -> ""
+        }
+        if (fromMime.isNotBlank()) return fromMime
+        val fromFormat = format
+            .lowercase()
+            .substringBefore(";")
+            .substringAfterLast("/")
+            .removePrefix(".")
+        val normalized = fromFormat.takeIf {
+            it in setOf("mp3", "wav", "m4a", "aac", "ogg", "audio")
+        } ?: audioUri.substringBefore("?")
+            .substringAfterLast('.', "")
+            .lowercase()
+            .takeIf { it in setOf("mp3", "wav", "m4a", "aac", "ogg", "audio") }
+        return normalized ?: "audio"
+    }
+
+    private fun parseExportTimeline(
+        raw: String,
+        chapter: TtsServerDbBridge.AudiobookChapter,
+        durationMs: Long
+    ): List<ManifestItem> {
+        val array = raw.takeIf { it.isNotBlank() }?.let { text ->
+            runCatching {
+                when (text.trim().firstOrNull()) {
+                    '[' -> JSONArray(text)
+                    '{' -> JSONObject(text).let { obj ->
+                        obj.optJSONArray("items")
+                            ?: obj.optJSONArray("timeline")
+                            ?: JSONArray()
+                    }
+
+                    else -> JSONArray()
+                }
+            }.getOrNull()
+        } ?: JSONArray()
+
+        val items = arrayListOf<ManifestItem>()
+        var cursorMs = 0L
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val startMs = item.optLong("startMs", -1L).let {
+                if (it >= 0L) it else item.optLong("audioStartMs", cursorMs)
+            }
+            val duration = item.optLong("durationMs", -1L)
+            val endMs = item.optLong("endMs", -1L).let {
+                when {
+                    it > startMs -> it
+                    item.optLong("audioEndMs", -1L) > startMs -> item.optLong("audioEndMs")
+                    duration > 0L -> startMs + duration
+                    else -> -1L
+                }
+            }
+            if (endMs <= startMs) continue
+            items += ManifestItem(
+                index = item.optInt("index", index),
+                text = item.optString("text").ifBlank {
+                    item.optString("currentText").ifBlank { chapter.chapterText.take(120) }
+                },
+                status = item.optString("status").ifBlank { "ready" },
+                path = item.optString("path"),
+                format = item.optString("format").ifBlank { "mp3" },
+                sizeBytes = item.optLong("sizeBytes", 0L),
+                startMs = startMs,
+                endMs = endMs,
+                durationMs = endMs - startMs,
+                fromCache = true,
+                error = item.optString("error")
+            )
+            cursorMs = endMs
+        }
+        if (items.isNotEmpty()) return items
+
+        val safeDuration = durationMs.coerceAtLeast(1L)
+        return listOf(
+            ManifestItem(
+                index = 0,
+                text = chapter.chapterText.take(200).ifBlank { chapter.chapterTitle },
+                status = "ready",
+                path = "",
+                format = "mp3",
+                sizeBytes = 0L,
+                startMs = 0L,
+                endMs = safeDuration,
+                durationMs = safeDuration,
+                fromCache = true,
+                error = ""
+            )
+        )
     }
 
     private suspend fun generateHttpChapter(
@@ -882,10 +1070,18 @@ object LocalAudiobookFileGenerator {
 
     private fun chapterOutputFile(outDir: File, extension: String): File {
         if (!outDir.exists()) outDir.mkdirs()
-        listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "audio").forEach { extension ->
+        chapterAudioExtensions().forEach { extension ->
             File(outDir, "chapter.$extension").delete()
         }
         return File(outDir, "chapter.$extension")
+    }
+
+    private fun chapterAudioExtensions(): List<String> {
+        return listOf(ProtectedAudiobookFile.EXTENSION, "mp3", "wav", "m4a", "aac", "ogg", "audio")
+    }
+
+    private fun playableChapterAudioExtensions(): Set<String> {
+        return setOf("mp3", "wav", "m4a", "aac", "ogg", "audio")
     }
 
     private fun chapterTempMp3File(outFile: File, baseName: String): File {

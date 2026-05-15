@@ -41,7 +41,13 @@ object ReadAloud {
             .getOrNull()
             ?.value
 
-        if (ttsEngine.isNullOrBlank() || sysEngine.isNullOrBlank() || sysEngine == TtsServerDbBridge.TTS_PACKAGE) {
+        if (TtsServerDbBridge.isJttsEngine(sysEngine) && AppConfig.enableJttsNoWebContextBridge) {
+            TtsServerDbBridge.ensureRunning(appCtx)
+            httpTTS = null
+            return TTSReadAloudService::class.java
+        }
+
+        if (ttsEngine.isNullOrBlank() || sysEngine.isNullOrBlank() || TtsServerDbBridge.isJttsEngine(sysEngine)) {
             TtsServerDbBridge.ensureRunning(appCtx)
             httpTTS = TtsServerDbBridge.directHttpTts()
             return HttpReadAloudService::class.java

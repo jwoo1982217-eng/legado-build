@@ -2,21 +2,32 @@ package io.legado.app.help
 
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import androidx.core.content.ContextCompat
+import io.legado.app.constant.AppLog
 import io.legado.app.data.entities.HttpTTS
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
+import kotlin.coroutines.resume
 
 object TtsServerDbBridge {
 
     private const val TAG = "TtsServerDbBridge"
 
-    const val TTS_PACKAGE = "com.github.jing332.tts_server_android.jtts"
-    private const val BRIDGE_AUTHORITY = "com.github.jing332.tts_server_android.jtts.legado.bridge"
-    private const val ACTION_START = "com.github.jing332.tts_server_android.jtts.action.LEGADO_BRIDGE_START"
+    const val TTS_PACKAGE = "com.github.jing332.tts_server_android"
+    private const val LEGACY_TTS_PACKAGE = "com.github.jing332.tts_server_android.jtts"
+    private const val ACTION_START = "com.github.jing332.tts_server_android.action.LEGADO_BRIDGE_START"
+    private const val LEGACY_ACTION_START = "com.github.jing332.tts_server_android.jtts.action.LEGADO_BRIDGE_START"
+    const val ACTION_EXPORT_CHAPTER_AUDIO = "com.jtts.action.EXPORT_CHAPTER_AUDIO"
+    const val ACTION_EXPORT_CHAPTER_AUDIO_RESULT = "com.jtts.action.EXPORT_CHAPTER_AUDIO_RESULT"
     private const val FORWARDER_URL = "http://127.0.0.1:7120/api/tts"
     private const val DIRECT_HTTP_TTS_ID = -72120L
     private const val METHOD_PREPARE_AUDIOBOOK = "prepareAudiobookGeneration"
@@ -25,8 +36,12 @@ object TtsServerDbBridge {
     private const val METHOD_SUBMIT_AUDIOBOOK = "submitAudiobookGeneration"
     private const val METHOD_QUERY_AUDIOBOOK = "queryAudiobookGeneration"
     private const val METHOD_CANCEL_AUDIOBOOK = "cancelAudiobookGeneration"
+    private const val METHOD_CLEANUP_AUDIOBOOK_CHAPTER_EXPORT = "cleanupAudiobookChapterExport"
 
-    private val BRIDGE_URI: Uri = Uri.parse("content://$BRIDGE_AUTHORITY")
+    private val BRIDGE_URIS: List<Uri> = listOf(
+        Uri.parse("content://$TTS_PACKAGE.legado.bridge"),
+        Uri.parse("content://$LEGACY_TTS_PACKAGE.legado.bridge")
+    )
 
     data class AudiobookChapter(
         val chapterIndex: Int,
@@ -58,6 +73,28 @@ object TtsServerDbBridge {
                     || status.equals("failed", true)
                     || status.equals("cancelled", true)
                     || status.equals("canceled", true)
+    }
+
+    data class AudiobookChapterExport(
+        val requestId: String,
+        val chapterIndex: Int,
+        val chapterTitle: String,
+        val audioUri: String,
+        val timelineUri: String,
+        val manifestUri: String,
+        val manifestJson: String,
+        val timelineJson: String,
+        val format: String,
+        val audioMimeType: String,
+        val durationMs: Long,
+        val sizeBytes: Long,
+        val contentHash: String,
+        val sessionId: String,
+        val message: String
+    )
+
+    fun isJttsEngine(engine: String?): Boolean {
+        return engine == TTS_PACKAGE || engine == LEGACY_TTS_PACKAGE
     }
 
     fun directHttpTts(): HttpTTS {
@@ -128,7 +165,6 @@ object TtsServerDbBridge {
                     return Result.failure(IllegalStateException(message))
                 }
             }
-
             val started = callBridge(app, METHOD_START_AUDIOBOOK, taskId, meta.apply {
                 putString("taskId", taskId)
             })
@@ -189,39 +225,221 @@ object TtsServerDbBridge {
         return Result.success(result.bridgeMessage().orEmpty().ifBlank { "已取消有声书生成任务" })
     }
 
-    private fun startByProvider(context: Context): Boolean {
-        return try {
-            val result: Bundle? = context.contentResolver.call(
-                BRIDGE_URI,
-                "start",
-                null,
-                Bundle()
-            )
-            result?.getBoolean("ok", false) == true
-        } catch (e: Throwable) {
-            Log.w(TAG, "startByProvider failed: ${e.message}")
-            false
+    suspend fun exportAudiobookChapter(
+        context: Context,
+        chapter: AudiobookChapter,
+        sessionId: String,
+        contentHash: String,
+        preferredFormat: String = "wav",
+        onProgress: (Int) -> Unit = {}
+    ): Result<AudiobookChapterExport> {
+        val app = context.applicationContext
+        ensureRunning(app)
+        val requestId = "jread_export_${chapter.chapterIndex}_${System.currentTimeMillis()}_${UUID.randomUUID()}"
+        AppLog.putDebug(
+            "[JRead-JTTS] send export intent requestId=$requestId " +
+                    "sessionId=$sessionId hash=$contentHash preferredFormat=$preferredFormat"
+        )
+        return withTimeout(30 * 60 * 1000L) {
+            suspendCancellableCoroutine { cont ->
+                var finished = false
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(ctx: Context?, intent: Intent?) {
+                        if (intent?.action != ACTION_EXPORT_CHAPTER_AUDIO_RESULT) return
+                        if (intent.getStringExtra("requestId") != requestId) return
+                        val status = intent.getStringExtra("status").orEmpty()
+                        val progress = intent.getIntExtra("progress", -1)
+                        when (status.lowercase()) {
+                            "running" -> {
+                                AppLog.putDebug(
+                                    "[JRead-JTTS] export running progress=$progress requestId=$requestId"
+                                )
+                                onProgress(progress)
+                            }
+
+                            "done" -> {
+                                if (finished) return
+                                finished = true
+                                unregisterExportReceiver(app, this)
+                                val manifestJson = intent.getStringExtra("manifestJson").orEmpty()
+                                AppLog.putDebug(
+                                    "[JRead-JTTS] export done manifestJson=${manifestJson.take(300)}"
+                                )
+                                cont.resume(parseExportDone(chapter, requestId, sessionId, contentHash, manifestJson))
+                            }
+
+                            "failed" -> {
+                                if (finished) return
+                                finished = true
+                                unregisterExportReceiver(app, this)
+                                val error = intent.getStringExtra("error").orEmpty()
+                                    .ifBlank { "J.TTS 整章导出失败" }
+                                AppLog.putDebug("[JRead-JTTS] export failed requestId=$requestId error=$error")
+                                cont.resume(Result.failure(IllegalStateException(error)))
+                            }
+                        }
+                    }
+                }
+                ContextCompat.registerReceiver(
+                    app,
+                    receiver,
+                    IntentFilter(ACTION_EXPORT_CHAPTER_AUDIO_RESULT),
+                    ContextCompat.RECEIVER_EXPORTED
+                )
+                cont.invokeOnCancellation {
+                    unregisterExportReceiver(app, receiver)
+                }
+
+                val intent = Intent(ACTION_EXPORT_CHAPTER_AUDIO).apply {
+                    setPackage(TTS_PACKAGE)
+                    putExtra("requestId", requestId)
+                    putExtra("sessionId", sessionId)
+                    putExtra("contentHash", contentHash)
+                    putExtra("callerPackage", app.packageName)
+                    putExtra("preferredFormat", preferredFormat)
+                }
+                val startResult = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        app.startForegroundService(intent)
+                    } else {
+                        app.startService(intent)
+                    }
+                }
+                startResult.onFailure {
+                    if (!finished) {
+                        finished = true
+                        unregisterExportReceiver(app, receiver)
+                        val error = "J.TTS 导出服务启动失败：${it.localizedMessage ?: it.javaClass.simpleName}"
+                        AppLog.putDebug("[JRead-JTTS] export start failed requestId=$requestId error=$error")
+                        cont.resume(Result.failure(IllegalStateException(error)))
+                    }
+                }
+            }
         }
     }
 
-    private fun startByService(context: Context): Boolean {
-        return try {
-            val intent = Intent(ACTION_START).apply {
-                setPackage(TTS_PACKAGE)
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-
-            Log.i(TAG, "TTS Server DB started by service")
-            true
-        } catch (e: Throwable) {
-            Log.e(TAG, "startByService failed", e)
-            false
+    fun cleanupAudiobookChapterExport(
+        context: Context,
+        export: AudiobookChapterExport
+    ): Result<String> {
+        val bundle = Bundle().apply {
+            putString("requestId", export.requestId)
+            putInt("chapterIndex", export.chapterIndex)
+            putString("audioUri", export.audioUri)
+            putString("manifestUri", export.manifestUri)
         }
+        val result = callBridge(
+            context.applicationContext,
+            METHOD_CLEANUP_AUDIOBOOK_CHAPTER_EXPORT,
+            export.requestId,
+            bundle
+        ) ?: return Result.success("TTS 端暂未返回清理结果")
+        if (!result.getBoolean("ok", false)) {
+            return Result.failure(IllegalStateException(result.bridgeMessage()))
+        }
+        return Result.success(result.bridgeMessage().orEmpty().ifBlank { "TTS 临时文件已清理" })
+    }
+
+    private fun unregisterExportReceiver(context: Context, receiver: BroadcastReceiver) {
+        runCatching {
+            context.unregisterReceiver(receiver)
+        }
+    }
+
+    private fun parseExportDone(
+        chapter: AudiobookChapter,
+        requestId: String,
+        sessionId: String,
+        fallbackContentHash: String,
+        manifestJson: String
+    ): Result<AudiobookChapterExport> {
+        val manifest = runCatching {
+            if (manifestJson.isBlank()) JSONObject() else JSONObject(manifestJson)
+        }.getOrElse {
+            return Result.failure(IllegalStateException("J.TTS 导出 manifestJson 解析失败：${it.localizedMessage}"))
+        }
+        val audioMimeType = manifest.optString("audioMimeType")
+        val format = manifest.optString("format").ifBlank {
+            when (audioMimeType.lowercase()) {
+                "audio/wav", "audio/x-wav" -> "wav"
+                "audio/mpeg", "audio/mp3" -> "mp3"
+                "audio/mp4", "audio/aac", "audio/m4a" -> "m4a"
+                else -> ""
+            }
+        }
+        val audioUri = manifest.optString("audioUri")
+        if (audioUri.isBlank()) {
+            return Result.failure(IllegalStateException("J.TTS 导出 manifest 缺少 audioUri"))
+        }
+        return Result.success(
+            AudiobookChapterExport(
+                requestId = manifest.optString("requestId").ifBlank { requestId },
+                chapterIndex = manifest.optInt("chapterIndex", chapter.chapterIndex),
+                chapterTitle = manifest.optString("chapterTitle").ifBlank { chapter.chapterTitle },
+                audioUri = audioUri,
+                timelineUri = manifest.optString("timelineUri"),
+                manifestUri = manifest.optString("manifestUri"),
+                manifestJson = if (manifest.has("method")) {
+                    manifest.toString()
+                } else {
+                    manifest.put("method", "exportAudiobookChapter").toString()
+                },
+                timelineJson = manifest.optString("timelineJson"),
+                format = format.ifBlank { "audio" },
+                audioMimeType = audioMimeType,
+                durationMs = manifest.optLong("durationMs", 0L),
+                sizeBytes = manifest.optLong("sizeBytes", 0L),
+                contentHash = manifest.optString("contentHash").ifBlank { fallbackContentHash },
+                sessionId = sessionId,
+                message = manifest.optString("message")
+            )
+        )
+    }
+
+    private fun startByProvider(context: Context): Boolean {
+        BRIDGE_URIS.forEach { uri ->
+            val started = try {
+                val result: Bundle? = context.contentResolver.call(
+                    uri,
+                    "start",
+                    null,
+                    Bundle()
+                )
+                result?.getBoolean("ok", false) == true
+            } catch (e: Throwable) {
+                Log.w(TAG, "startByProvider failed uri=$uri: ${e.message}")
+                false
+            }
+            if (started) return true
+        }
+        return false
+    }
+
+    private fun startByService(context: Context): Boolean {
+        listOf(
+            ACTION_START to TTS_PACKAGE,
+            LEGACY_ACTION_START to LEGACY_TTS_PACKAGE
+        ).forEach { (action, packageName) ->
+            val started = try {
+                val intent = Intent(action).apply {
+                    setPackage(packageName)
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+
+                Log.i(TAG, "TTS Server DB started by service package=$packageName")
+                true
+            } catch (e: Throwable) {
+                Log.w(TAG, "startByService failed package=$packageName: ${e.message}")
+                false
+            }
+            if (started) return true
+        }
+        return false
     }
 
     private fun callBridge(
@@ -230,12 +448,16 @@ object TtsServerDbBridge {
         arg: String?,
         extras: Bundle
     ): Bundle? {
-        return try {
-            context.contentResolver.call(BRIDGE_URI, method, arg, extras)
-        } catch (e: Throwable) {
-            Log.w(TAG, "call $method failed: ${e.message}")
-            null
+        BRIDGE_URIS.forEach { uri ->
+            val result = try {
+                context.contentResolver.call(uri, method, arg, extras)
+            } catch (e: Throwable) {
+                Log.w(TAG, "call $method failed uri=$uri: ${e.message}")
+                null
+            }
+            if (result != null) return result
         }
+        return null
     }
 
     private fun parseSubmitResult(
@@ -262,6 +484,13 @@ object TtsServerDbBridge {
         return getString("message")
             ?: getString("error")
             ?: getString("reason")
+    }
+
+    private fun Bundle.firstString(vararg keys: String): String {
+        keys.forEach { key ->
+            getString(key)?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return ""
     }
 
     private fun chaptersToJson(chapters: List<AudiobookChapter>): String {

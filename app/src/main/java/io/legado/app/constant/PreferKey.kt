@@ -288,5 +288,7 @@ object PreferKey {
     const val audioPreloadEnabled = "audioPreloadEnabled"
     const val audiobookAutoMergeAfterRead = "audiobookAutoMergeAfterRead"
     const val audiobookConvertMergedToMp3 = "audiobookConvertMergedToMp3"
+    const val enableJttsNoWebContextBridge = "enableJttsNoWebContextBridge"
+    const val enableJttsAudiobookExportBridge = "enableJttsAudiobookExportBridge"
     const val scriptBrainEnabled = "scriptBrainEnabled"
 }
