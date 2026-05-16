@@ -139,6 +139,8 @@ abstract class BaseReadAloudService : BaseService(),
     var paragraphStartPos = 0
     var readAloudByPage = false
         private set
+    @Volatile
+    private var realtimeJttsChapterState: RealtimeJttsChapterState? = null
 
     private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -379,13 +381,41 @@ abstract class BaseReadAloudService : BaseService(),
 
     protected open fun currentRealtimeTtsEngineForJttsBridge(): String? = null
 
+    private data class RealtimeJttsChapterState(
+        val chapterIndex: Int,
+        val sessionId: String,
+        val contentHash: String,
+        val contentLength: Int,
+        val trimStartOffset: Int
+    )
+
     private fun prewarmJttsChapterContext(textChapter: TextChapter) {
-        if (!TtsServerDbBridge.isJttsEngine(currentRealtimeTtsEngineForJttsBridge())) return
+        if (!TtsServerDbBridge.isJttsEngine(currentRealtimeTtsEngineForJttsBridge())) {
+            realtimeJttsChapterState = null
+            return
+        }
         val book = ReadBook.book ?: return
+        val rawChapterText = textChapter.getNeedReadAloud(0, false, 0)
+        val trimStartOffset = rawChapterText.indexOfFirst { !it.isWhitespace() }.let {
+            if (it >= 0) it else 0
+        }
+        val chapterText = rawChapterText.trim()
+        if (chapterText.isBlank()) return
+        val contentHash = JttsChapterContextBridge.contentHash(chapterText)
+        val sessionId = JttsChapterContextBridge.sessionId(
+            book.bookUrl,
+            textChapter.chapter.index,
+            contentHash
+        )
+        realtimeJttsChapterState = RealtimeJttsChapterState(
+            chapterIndex = textChapter.chapter.index,
+            sessionId = sessionId,
+            contentHash = contentHash,
+            contentLength = chapterText.length,
+            trimStartOffset = trimStartOffset
+        )
         lifecycleScope.launch(IO) {
             runCatching {
-                val chapterText = textChapter.getNeedReadAloud(0, false, 0).trim()
-                if (chapterText.isBlank()) return@runCatching
                 val chapter = TtsServerDbBridge.AudiobookChapter(
                     chapterIndex = textChapter.chapter.index,
                     chapterTitle = textChapter.chapter.title,
@@ -409,6 +439,36 @@ abstract class BaseReadAloudService : BaseService(),
                 )
             }
         }
+    }
+
+    protected fun importJttsReadingPointerBeforeSpeak(
+        paragraphIndex: Int,
+        currentText: String,
+        paragraphOffset: Int
+    ) {
+        if (!TtsServerDbBridge.isJttsEngine(currentRealtimeTtsEngineForJttsBridge())) return
+        val state = realtimeJttsChapterState ?: return
+        val currentChapter = textChapter ?: return
+        if (state.chapterIndex != currentChapter.chapter.index) return
+        val paragraph = currentChapter.getParagraphs(readAloudByPage).getOrNull(paragraphIndex)
+        val rawStartOffset = paragraph?.chapterPosition ?: when (paragraphIndex) {
+            nowSpeak -> readAloudNumber
+            else -> -1
+        }
+        if (rawStartOffset < 0) return
+        val startOffset = (rawStartOffset + paragraphOffset - state.trimStartOffset)
+            .coerceIn(0, state.contentLength)
+        val endOffset = (startOffset + currentText.length)
+            .coerceIn(startOffset, state.contentLength)
+        TtsServerDbBridge.importReadingPointerAsync(
+            context = this,
+            sessionId = state.sessionId,
+            contentHash = state.contentHash,
+            currentText = currentText,
+            startOffset = startOffset,
+            endOffset = endOffset,
+            chapterIndex = state.chapterIndex
+        )
     }
 
     protected fun markChapterFinishedByPlayback() {
@@ -817,20 +877,44 @@ abstract class BaseReadAloudService : BaseService(),
         val chapterText = spokenSegments.joinToString("\n").trim()
             .ifBlank { finishedChapter.getNeedReadAloud(0, false, 0).trim() }
         if (chapterText.isBlank()) return
+        val realtimeState = realtimeJttsChapterState
+        val jttsRealtimeState = realtimeState.takeIf {
+            TtsServerDbBridge.isJttsEngine(currentRealtimeTtsEngineForJttsBridge()) &&
+                    realtimeState?.chapterIndex == finishedChapter.chapter.index
+        }
 
         Coroutine.async(context = IO) {
-            val status = LocalAudiobookFileGenerator.generateFinishedReadAloudChapter(
-                context = this@BaseReadAloudService,
-                bookName = currentBook.name,
-                bookUrl = currentBook.bookUrl,
-                chapter = TtsServerDbBridge.AudiobookChapter(
-                    chapterIndex = finishedChapter.chapter.index,
-                    chapterTitle = finishedChapter.chapter.title,
-                    chapterText = chapterText
-                ),
-                preferredHttpTts = preferredHttpTts,
-                segmentsOverride = spokenSegments
+            val chapter = TtsServerDbBridge.AudiobookChapter(
+                chapterIndex = finishedChapter.chapter.index,
+                chapterTitle = finishedChapter.chapter.title,
+                chapterText = chapterText
             )
+            val status = if (jttsRealtimeState != null) {
+                val export = TtsServerDbBridge.exportReaderAudioCache(
+                    context = this@BaseReadAloudService,
+                    bookName = currentBook.name,
+                    chapter = chapter,
+                    sessionId = jttsRealtimeState.sessionId,
+                    contentHash = jttsRealtimeState.contentHash
+                ).getOrThrow()
+                LocalAudiobookFileGenerator.importReaderAudioCacheSegments(
+                    context = this@BaseReadAloudService,
+                    bookName = currentBook.name,
+                    bookUrl = currentBook.bookUrl,
+                    chapter = chapter,
+                    export = export,
+                    sourceSegments = spokenSegments
+                )
+            } else {
+                LocalAudiobookFileGenerator.generateFinishedReadAloudChapter(
+                    context = this@BaseReadAloudService,
+                    bookName = currentBook.name,
+                    bookUrl = currentBook.bookUrl,
+                    chapter = chapter,
+                    preferredHttpTts = preferredHttpTts,
+                    segmentsOverride = spokenSegments
+                )
+            }
             AppLog.putDebug(
                 "读完自动合成章节音频完成: ${currentBook.name} / ${finishedChapter.chapter.title} / ${status.format} / ${status.path}"
             )

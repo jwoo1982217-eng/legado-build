@@ -658,6 +658,87 @@ object LocalAudiobookFileGenerator {
         }
     }
 
+    suspend fun importReaderAudioCacheSegments(
+        context: Context,
+        bookName: String,
+        bookUrl: String,
+        chapter: TtsServerDbBridge.AudiobookChapter,
+        export: TtsServerDbBridge.ReaderAudioCacheExport,
+        sourceSegments: List<String>
+    ): ChapterStatus = withContext(IO) {
+        val appContext = context.applicationContext
+        val sortedSegments = export.segments.sortedWith(compareBy({ it.order }, { it.index }))
+        if (sortedSegments.isEmpty()) {
+            throw NoStackTraceException("J.TTS 没有返回当前章节可复制的音频片段")
+        }
+        val segmentDir = segmentDir(
+            context = appContext,
+            bookName = bookName,
+            chapter = chapter,
+            engineKey = "jtts_reader_cache_${export.contentHash.take(16).ifBlank { export.sessionId.take(16) }}"
+        )
+        val audioSegments = mutableListOf<AudioSegment>()
+        for ((fallbackOrder, segment) in sortedSegments.withIndex()) {
+            currentCoroutineContext().ensureActive()
+            val sourceText = sourceSegments.getOrNull(segment.index)
+                ?: sourceSegments.getOrNull(segment.order)
+                ?: sourceSegments.getOrNull(segment.index - 1)
+                ?: "J.TTS 片段 ${fallbackOrder + 1}"
+            val extension = segment.audioExtension()
+            val target = segmentCacheFile(segmentDir, segment.index, sourceText, extension)
+            if (!target.exists() || target.length() <= 0L) {
+                openExportInputStream(appContext, segment.audioUri).use { input ->
+                    target.parentFile?.mkdirs()
+                    target.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+            if (!target.exists() || target.length() <= 0L) {
+                throw NoStackTraceException("J.TTS 当前句缓存片段复制失败：${segment.fileName}")
+            }
+            audioSegments += AudioSegment(
+                index = segment.index,
+                text = sourceText,
+                file = target,
+                bytes = target.readBytes(),
+                fromCache = true
+            )
+        }
+        AppLog.putDebug(
+            "[JRead-JTTS] copy reader audio cache segments success " +
+                    "count=${audioSegments.size} sessionId=${export.sessionId}"
+        )
+
+        val outFile = buildChapterAudioFile(appContext, bookName, chapter, audioSegments)
+        writeManifest(
+            context = appContext,
+            bookName = bookName,
+            bookUrl = bookUrl,
+            chapter = chapter,
+            engineName = "J.TTS 当前句缓存",
+            status = if (outFile == null) "segments_ready" else "ready",
+            file = outFile,
+            error = "",
+            items = audioSegments.toManifestItems()
+        )
+        if (export.manifestJson.isNotBlank()) {
+            File(chapterDir(appContext, bookName, chapter), "jtts_reader_cache_manifest.json")
+                .writeText(export.manifestJson, Charsets.UTF_8)
+        }
+        if (export.manifestUri.isNotBlank()) {
+            readExportText(appContext, export.manifestUri).takeIf { it.isNotBlank() }?.let { text ->
+                File(chapterDir(appContext, bookName, chapter), "jtts_reader_cache_manifest_raw.json")
+                    .writeText(text, Charsets.UTF_8)
+            }
+        }
+        AppLog.putDebug(
+            "[JRead-JTTS] save audiobook cache from reader segments success " +
+                    "path=${outFile?.absolutePath.orEmpty()} sessionId=${export.sessionId}"
+        )
+        inspectChapterStatus(appContext, bookName, chapter)
+    }
+
     private fun resolveEnginePlan(): EnginePlan {
         val ttsEngine = ReadAloud.ttsEngine
         if (!ttsEngine.isNullOrBlank() && StringUtils.isNumeric(ttsEngine)) {
@@ -716,6 +797,26 @@ object LocalAudiobookFileGenerator {
             .lowercase()
             .takeIf { it in setOf("mp3", "wav", "m4a", "aac", "ogg", "audio") }
         return normalized ?: "audio"
+    }
+
+    private fun TtsServerDbBridge.ReaderAudioCacheSegment.audioExtension(): String {
+        val fromMime = when (audioMimeType.lowercase()) {
+            "audio/wav", "audio/x-wav" -> "wav"
+            "audio/mpeg", "audio/mp3" -> "mp3"
+            "audio/mp4", "audio/aac", "audio/m4a" -> "m4a"
+            else -> ""
+        }
+        if (fromMime.isNotBlank()) return fromMime
+        val fromName = fileName.substringBefore("?")
+            .substringAfterLast('.', "")
+            .lowercase()
+            .takeIf { it in setOf("mp3", "wav", "m4a", "aac", "ogg", "audio") }
+        if (fromName != null) return fromName
+        return audioUri.substringBefore("?")
+            .substringAfterLast('.', "")
+            .lowercase()
+            .takeIf { it in setOf("mp3", "wav", "m4a", "aac", "ogg", "audio") }
+            ?: "audio"
     }
 
     private fun parseExportTimeline(

@@ -35,6 +35,10 @@ object TtsServerDbBridge {
     const val ACTION_EXPORT_CHAPTER_AUDIO_RESULT = "com.jtts.action.EXPORT_CHAPTER_AUDIO_RESULT"
     const val ACTION_IMPORT_CHAPTER_CONTEXT = "com.jtts.action.IMPORT_CHAPTER_CONTEXT"
     const val ACTION_IMPORT_CHAPTER_CONTEXT_RESULT = "com.jtts.action.IMPORT_CHAPTER_CONTEXT_RESULT"
+    const val ACTION_IMPORT_READING_POINTER = "com.jtts.action.IMPORT_READING_POINTER"
+    const val ACTION_IMPORT_READING_POINTER_RESULT = "com.jtts.action.IMPORT_READING_POINTER_RESULT"
+    const val ACTION_EXPORT_READER_AUDIO_CACHE = "com.jtts.action.EXPORT_READER_AUDIO_CACHE"
+    const val ACTION_EXPORT_READER_AUDIO_CACHE_RESULT = "com.jtts.action.EXPORT_READER_AUDIO_CACHE_RESULT"
     private const val FORWARDER_URL = "http://127.0.0.1:7120/api/tts"
     private const val DIRECT_HTTP_TTS_ID = -72120L
     private const val METHOD_PREPARE_AUDIOBOOK = "prepareAudiobookGeneration"
@@ -102,6 +106,28 @@ object TtsServerDbBridge {
         val contentHash: String,
         val sessionId: String,
         val message: String
+    )
+
+    data class ReaderAudioCacheExport(
+        val requestId: String,
+        val sessionId: String,
+        val contentHash: String,
+        val manifestJson: String,
+        val manifestUri: String,
+        val segmentCount: Int,
+        val segments: List<ReaderAudioCacheSegment>,
+        val message: String
+    )
+
+    data class ReaderAudioCacheSegment(
+        val index: Int,
+        val order: Int,
+        val fileName: String,
+        val sizeBytes: Long,
+        val audioUri: String,
+        val audioMimeType: String,
+        val durationMs: Long,
+        val lastModified: Long
     )
 
     fun isJttsEngine(engine: String?): Boolean {
@@ -368,6 +394,116 @@ object TtsServerDbBridge {
         }
     }
 
+    suspend fun exportReaderAudioCache(
+        context: Context,
+        bookName: String,
+        chapter: AudiobookChapter,
+        sessionId: String,
+        contentHash: String,
+        onProgress: (Int) -> Unit = {}
+    ): Result<ReaderAudioCacheExport> {
+        val app = context.applicationContext
+        ensureRunning(app)
+        val requestId = "jread_reader_cache_${chapter.chapterIndex}_${System.currentTimeMillis()}_${UUID.randomUUID()}"
+        AppLog.putDebug(
+            "[JRead-JTTS] send reader audio cache export requestId=$requestId " +
+                    "sessionId=$sessionId hash=$contentHash book=$bookName chapter=${chapter.chapterTitle}"
+        )
+        return withTimeout(10 * 60 * 1000L) {
+            suspendCancellableCoroutine { cont ->
+                var finished = false
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(ctx: Context?, intent: Intent?) {
+                        if (intent?.action != ACTION_EXPORT_READER_AUDIO_CACHE_RESULT) return
+                        if (intent.getStringExtra("requestId") != requestId) return
+                        val status = intent.getStringExtra("status").orEmpty()
+                        val progress = intent.getIntExtra("progress", -1)
+                        when (status.lowercase()) {
+                            "running" -> {
+                                AppLog.putDebug(
+                                    "[JRead-JTTS] reader audio cache export running " +
+                                            "progress=$progress requestId=$requestId"
+                                )
+                                onProgress(progress)
+                            }
+
+                            "done" -> {
+                                if (finished) return
+                                finished = true
+                                unregisterExportReceiver(app, this)
+                                val manifestJson = intent.getStringExtra("manifestJson").orEmpty()
+                                AppLog.putDebug(
+                                    "[JRead-JTTS] reader audio cache export done " +
+                                            "manifestJson=${manifestJson.take(300)}"
+                                )
+                                cont.resume(
+                                    parseReaderAudioCacheDone(
+                                        requestId = requestId,
+                                        sessionId = sessionId,
+                                        contentHash = contentHash,
+                                        manifestJson = manifestJson
+                                    )
+                                )
+                            }
+
+                            "failed" -> {
+                                if (finished) return
+                                finished = true
+                                unregisterExportReceiver(app, this)
+                                val error = intent.getStringExtra("error").orEmpty()
+                                    .ifBlank { "J.TTS 当前句缓存片段导出失败" }
+                                AppLog.putDebug(
+                                    "[JRead-JTTS] reader audio cache export failed " +
+                                            "requestId=$requestId error=$error"
+                                )
+                                cont.resume(Result.failure(IllegalStateException(error)))
+                            }
+                        }
+                    }
+                }
+                ContextCompat.registerReceiver(
+                    app,
+                    receiver,
+                    IntentFilter(ACTION_EXPORT_READER_AUDIO_CACHE_RESULT),
+                    ContextCompat.RECEIVER_EXPORTED
+                )
+                cont.invokeOnCancellation {
+                    unregisterExportReceiver(app, receiver)
+                }
+
+                val intent = Intent(ACTION_EXPORT_READER_AUDIO_CACHE).apply {
+                    setPackage(TTS_PACKAGE)
+                    putExtra("requestId", requestId)
+                    putExtra("sessionId", sessionId)
+                    putExtra("contentHash", contentHash)
+                    putExtra("bookName", bookName)
+                    putExtra("chapterTitle", chapter.chapterTitle)
+                    putExtra("chapterIndex", chapter.chapterIndex)
+                    putExtra("callerPackage", app.packageName)
+                }
+                val startResult = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        app.startForegroundService(intent)
+                    } else {
+                        app.startService(intent)
+                    }
+                }
+                startResult.onFailure {
+                    if (!finished) {
+                        finished = true
+                        unregisterExportReceiver(app, receiver)
+                        val error = "J.TTS 当前句缓存导出服务启动失败：${it.localizedMessage ?: it.javaClass.simpleName}"
+                        AppLog.putDebug(
+                            "[JRead-JTTS] reader audio cache export start failed " +
+                                    "requestId=$requestId error=$error"
+                        )
+                        cont.resume(Result.failure(IllegalStateException(error)))
+                    }
+                }
+            }
+        }
+    }
+
     fun importChapterContextAsync(
         context: Context,
         chapter: AudiobookChapter,
@@ -485,6 +621,51 @@ object TtsServerDbBridge {
             AppLog.putDebug(
                 "[JRead-JTTS] realtime context import start failed " +
                         "sessionId=${contextFile.sessionId} error=${it.localizedMessage ?: it.javaClass.simpleName}"
+            )
+        }
+    }
+
+    fun importReadingPointerAsync(
+        context: Context,
+        sessionId: String,
+        contentHash: String,
+        currentText: String,
+        startOffset: Int,
+        endOffset: Int,
+        chapterIndex: Int
+    ) {
+        if (sessionId.isBlank() || currentText.isBlank()) return
+        val app = context.applicationContext
+        val requestId = "jread_ptr_${chapterIndex}_${System.currentTimeMillis()}_${UUID.randomUUID()}"
+        val intent = Intent(ACTION_IMPORT_READING_POINTER).apply {
+            setPackage(TTS_PACKAGE)
+            putExtra("method", "importReadingPointer")
+            putExtra("requestId", requestId)
+            putExtra("sessionId", sessionId)
+            putExtra("contentHash", contentHash)
+            putExtra("callerPackage", app.packageName)
+            putExtra("currentText", currentText)
+            putExtra("startOffset", startOffset)
+            putExtra("endOffset", endOffset)
+            putExtra("chapterIndex", chapterIndex)
+            putExtra("updatedAt", System.currentTimeMillis())
+        }
+        runCatching {
+            AppLog.putDebug(
+                "[JRead-JTTS] send realtime pointer requestId=$requestId " +
+                        "sessionId=$sessionId chapterIndex=$chapterIndex " +
+                        "start=$startOffset end=$endOffset textLen=${currentText.length}"
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.startForegroundService(intent)
+            } else {
+                app.startService(intent)
+            }
+        }.onFailure {
+            AppLog.putDebug(
+                "[JRead-JTTS] realtime pointer import failed " +
+                        "sessionId=$sessionId start=$startOffset end=$endOffset " +
+                        "error=${it.localizedMessage ?: it.javaClass.simpleName}"
             )
         }
     }
@@ -621,6 +802,59 @@ object TtsServerDbBridge {
                 sizeBytes = manifest.optLong("sizeBytes", 0L),
                 contentHash = manifest.optString("contentHash").ifBlank { fallbackContentHash },
                 sessionId = sessionId,
+                message = manifest.optString("message")
+            )
+        )
+    }
+
+    private fun parseReaderAudioCacheDone(
+        requestId: String,
+        sessionId: String,
+        contentHash: String,
+        manifestJson: String
+    ): Result<ReaderAudioCacheExport> {
+        if (manifestJson.isBlank()) {
+            return Result.failure(IllegalStateException("J.TTS 当前句缓存导出缺少 manifestJson"))
+        }
+        val manifest = runCatching {
+            JSONObject(manifestJson)
+        }.getOrElse {
+            return Result.failure(IllegalStateException("J.TTS 当前句缓存 manifestJson 解析失败：${it.localizedMessage}"))
+        }
+        val rawSegments = manifest.optJSONArray("segments") ?: JSONArray()
+        val segments = arrayListOf<ReaderAudioCacheSegment>()
+        for (i in 0 until rawSegments.length()) {
+            val item = rawSegments.optJSONObject(i) ?: continue
+            val index = item.optInt("index", item.optInt("order", i))
+            val order = item.optInt("order", index)
+            val audioUri = item.optString("audioUri")
+            if (audioUri.isBlank()) continue
+            segments += ReaderAudioCacheSegment(
+                index = index,
+                order = order,
+                fileName = item.optString("fileName").ifBlank { "segment_${index.toString().padStart(4, '0')}" },
+                sizeBytes = item.optLong("sizeBytes", 0L),
+                audioUri = audioUri,
+                audioMimeType = item.optString("audioMimeType"),
+                durationMs = item.optLong("durationMs", 0L),
+                lastModified = item.optLong("lastModified", 0L)
+            )
+        }
+        if (segments.isEmpty()) {
+            return Result.failure(IllegalStateException("J.TTS 当前句缓存导出没有返回可用音频片段"))
+        }
+        if (!manifest.has("method")) {
+            manifest.put("method", "exportReaderAudioCache")
+        }
+        return Result.success(
+            ReaderAudioCacheExport(
+                requestId = manifest.optString("requestId").ifBlank { requestId },
+                sessionId = manifest.optString("sessionId").ifBlank { sessionId },
+                contentHash = manifest.optString("contentHash").ifBlank { contentHash },
+                manifestJson = manifest.toString(),
+                manifestUri = manifest.optString("manifestUri"),
+                segmentCount = manifest.optInt("segmentCount", segments.size),
+                segments = segments,
                 message = manifest.optString("message")
             )
         )

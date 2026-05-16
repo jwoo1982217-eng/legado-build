@@ -133,6 +133,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                         if (TtsServerDbBridge.isJttsEngine(currentEngine)) {
                             AppLog.putDebug("[JRead-JTTS] realtime speak direct textLen=${text.length}")
                         }
+                        importJttsReadingPointerBeforeSpeak(i, text, firstOffset)
                         speak(text, nextQueueMode, null, AppConst.APP_TAG + i)
                     }.getOrElse {
                         AppLog.put("tts出错\n${it.localizedMessage}", it, true)
@@ -146,6 +147,7 @@ class TTSReadAloudService : BaseReadAloudService(), TextToSpeech.OnInitListener 
                     }
                 } else {
                     val result = tts.runCatching {
+                        importJttsReadingPointerBeforeSpeak(i, text, firstOffset)
                         speak(text, TextToSpeech.QUEUE_ADD, null, AppConst.APP_TAG + i)
                     }.getOrElse {
                         AppLog.put("tts出错\n${it.localizedMessage}", it, true)
